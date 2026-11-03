@@ -16,7 +16,7 @@ App Messenger gọn nhẹ cho macOS (chip Apple), viết bằng Swift + WKWebVie
 ## Cài đặt
 Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
 
-1. Tải **`Messenger Vdk 0.6.0.dmg`** ở mục **[Releases](../../releases/latest)** (hoặc file `.zip`).
+1. Tải **`Messenger.Vdk.0.6.0.dmg`** ở mục **[Releases](../../releases/latest)** (hoặc file `.zip`).
 2. Bấm đúp file DMG → kéo **Messenger Vdk** vào thư mục **Applications**.
 3. Mở app lần đầu: macOS sẽ chặn vì app **chưa được Apple công chứng** (notarize – cần gói Apple Developer trả phí). Hộp cảnh báo chỉ có nút «Chuyển vào Thùng rác» và «Xong» → bấm **Xong**.
 
