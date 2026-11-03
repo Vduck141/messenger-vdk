@@ -13,6 +13,7 @@ import Cocoa
 import WebKit
 import UserNotifications
 import ServiceManagement
+import CryptoKit
 
 // Trang chính của app
 let trangChu = URL(string: "https://www.messenger.com")!
@@ -402,6 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     var oKhongHien: NSButton?                        // ô "Không hiện bảng này khi mở app"
     var cuaSoCaiDat: NSWindow?                       // cửa sổ Cài đặt (⌘,)
     var trangCaiDat: NSView?
+    var oTrangThaiCN: NSTextField?                   // dòng trạng thái cập nhật trong Cài đặt
     var giuHanhDong: [HanhDong] = []                 // giữ các hàm xử lý công tắc trong Cài đặt
     var chongNgu: NSObjectProtocol?                  // giữ app không bị App Nap
     var goiDen: (chu: String, anh: String, video: Bool, nhom: Bool)?
@@ -427,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         if ["2", "3"].contains(ProcessInfo.processInfo.environment["VM_PIP"] ?? "") { DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self.thuPiP2() } }
         // Mỗi lần mở app → hiện bảng phím tắt, trừ khi anh đã tích "Không hiện bảng này khi mở app" (anh chọn cách 1, 03/11)
+        batLichCapNhat()
         if !UserDefaults.standard.bool(forKey: "khongHienPhimTat") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.moBangPhim() }
         }
@@ -1270,6 +1273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         them(tenApp, [
             muc("Giới thiệu", #selector(moGioiThieu), "", self),
             muc("Cài đặt…", #selector(moCaiDat), ",", self),
+            muc("Kiểm tra cập nhật…", #selector(kiemTraCapNhatMenu), "", self),
             .separator(),
             muc("Ẩn", #selector(NSApplication.hide(_:)), "h"),
             muc("Ẩn ứng dụng khác", #selector(NSApplication.hideOtherApplications(_:)), "h", nil, [.command, .option]),
@@ -1765,6 +1769,11 @@ extension AppDelegate {
 let ngayPhatHanh = "03/11/2026"
 let tenApp = "Messenger Vdk"           // tên app (anh chốt 03/11; trước: Vduck Messenger → Messenger → Messenger AppD)
 let coGiMoi = """
+0.6.1 – 03/11/2026
+• Cập nhật ngay trong app: Cài đặt → Chung → Kiểm tra cập nhật (hoặc menu Messenger Vdk). Bản mới được kiểm chữ ký số rồi tự cài, mở lại – không phải bấm «Vẫn mở» lại
+• Nút «Đăng xuất và xoá dữ liệu» (Cài đặt → Chung) cho máy dùng chung
+• DMG mới có ảnh nền + hướng dẫn mở lần đầu
+
 0.6.0 – 03/11/2026
 • Đổi tên thành Messenger Vdk, thêm cửa sổ Cài đặt (⌘,)
 • Thông báo tin nhắn khi ở app khác (cả tin nhóm), Dock chỉ nảy khi có cuộc gọi
@@ -2008,6 +2017,9 @@ extension AppDelegate {
                 if let w = self?.cuaSoCaiDat { a.beginSheetModal(for: w) } },
             nut("Thư mục nhật ký", lien: true) { NSWorkspace.shared.activateFileViewerSelecting([fileNhatKy]) },
         ]); lien.spacing = 16
+        // Cập nhật: dòng trạng thái
+        let oTT = NSTextField(labelWithString: trangThaiCapNhat); oTT.textColor = .secondaryLabelColor; oTT.font = .systemFont(ofSize: 12)
+        oTrangThaiCN = oTT
         // Chẩn đoán
         let cacNut = NSStackView(views: [
             nut("Chép nhật ký", "doc.on.doc") {
@@ -2038,11 +2050,206 @@ extension AppDelegate {
                  chuGhi("Xem lại bảng phím tắt bất cứ lúc nào: ⌘/.")]),
             tieuDeMuc("Giới thiệu", "info.circle"),
             the([gt, lien]),
+            tieuDeMuc("Tài khoản & dữ liệu", "person.crop.circle"),
+            the([dong(nut("Đăng xuất và xoá dữ liệu…", "rectangle.portrait.and.arrow.right") { [weak self] in self?.hoiDangXuat() }, NSTextField(labelWithString: "")),
+                 chuGhi("Dùng máy chung, hoặc trước khi đưa máy cho người khác: xoá đăng nhập và dữ liệu Messenger lưu trên máy này. Tin nhắn trên tài khoản không bị xoá.")]),
+            tieuDeMuc("Cập nhật", "arrow.triangle.2.circlepath"),
+            the([dong(nut("Kiểm tra cập nhật", "arrow.clockwise", xanh: true) { [weak self] in self?.kiemTraCapNhat(imLang: false) }, oTT),
+                 chuGhi("App không tự hỏi – bấm nút để xem có bản mới trên GitHub (\(khoGitHub)). Bản mới được kiểm chữ ký số trước khi cài; app tự thay bản cũ và mở lại. Đăng nhập, cài đặt giữ nguyên.")]),
             tieuDeMuc("Chẩn đoán", "stethoscope"),
             the([congTac("ghiGoLoi", false, "Ghi nhật ký gỡ lỗi"),
                  chuGhi("Tắt: chỉ ghi lỗi và số đo. Bật: ghi chi tiết (dò tin, cuộc gọi) để tìm lỗi – không ghi nội dung tin nhắn hay tên người."),
                  cacNut]),
         ])
+    }
+}
+
+// MARK: Tự cập nhật (anh chọn mức 2, 03/11): hỏi GitHub Releases → có bản mới → tải zip + chữ ký → kiểm chữ ký Ed25519
+// bằng khoá công khai gắn sẵn (khoá bí mật chỉ nằm trong Keychain máy anh, xem phat-hanh/khoa.swift) → thay app → mở lại.
+// File do app tự tải không bị gắn dấu "tải từ Internet" → người dùng không phải bấm "Vẫn mở" lại.
+let khoaCongKhaiCapNhat = "t62Zb9HEl8O9BqefxiJHXaYkRCJmxNyoMnNC9OJ1YH0="
+let khoGitHub = "Vduck141/messenger-vdk"
+
+struct BanPhatHanh { let ban: String; let ghiChu: String; let zip: URL?; let sig: URL?; let trang: URL }
+enum LoiCapNhat: LocalizedError {
+    case lyDo(String)
+    var errorDescription: String? { if case .lyDo(let s) = self { return s }; return nil }
+}
+// So 2 bản dạng 0.6.1: >0 nếu a mới hơn b
+func soSanhBan(_ a: String, _ b: String) -> Int {
+    let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+    for i in 0..<max(x.count, y.count) { let d = (i < x.count ? x[i] : 0) - (i < y.count ? y[i] : 0); if d != 0 { return d } }
+    return 0
+}
+var banHienTai: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
+
+extension AppDelegate {
+    var urlKiemTraCapNhat: URL {
+        URL(string: ProcessInfo.processInfo.environment["VM_CAPNHAT_URL"] ?? "https://api.github.com/repos/\(khoGitHub)/releases/latest")!
+    }
+    var trangThaiCapNhat: String {
+        get { UserDefaults.standard.string(forKey: "trangThaiCapNhat") ?? "Chưa kiểm tra" }
+        set { UserDefaults.standard.set(newValue, forKey: "trangThaiCapNhat"); oTrangThaiCN?.stringValue = newValue }
+    }
+    // Gọi lúc mở app: báo nếu vừa cập nhật xong (không tự kiểm tra bản mới)
+    func batLichCapNhat() {
+        if let tu = UserDefaults.standard.string(forKey: "vuaCapNhatTu") {
+            UserDefaults.standard.removeObject(forKey: "vuaCapNhatTu")
+            NSLog("VM: CẬP NHẬT xong %@ → %@", tu, banHienTai)
+            trangThaiCapNhat = "Đã cập nhật lên \(banHienTai)"
+            let nd = UNMutableNotificationContent(); nd.title = "Đã cập nhật Messenger Vdk \(banHienTai)"; nd.body = "Từ bản \(tu). Đăng nhập và cài đặt giữ nguyên."
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "capnhat", content: nd, trigger: nil))
+        }
+        // Không tự hỏi GitHub (anh chốt 03/11: người dùng tự bấm «Kiểm tra cập nhật» trong Cài đặt / menu).
+        // Chạy thử: VM_CAPNHAT_URL → kiểm ngay sau 10 giây.
+        if ProcessInfo.processInfo.environment["VM_CAPNHAT_URL"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.kiemTraCapNhat(imLang: true) }
+        }
+    }
+    // Đăng xuất và xoá dữ liệu (anh duyệt 03/11): xoá MỌI dữ liệu web của app (cookie đăng nhập, bộ nhớ trang, IndexedDB…)
+    // rồi tải lại messenger.com → trang đăng nhập. Không đụng cài đặt của app.
+    func hoiDangXuat() {
+        let a = NSAlert(); a.alertStyle = .critical
+        a.messageText = "Đăng xuất và xoá dữ liệu Messenger?"
+        a.informativeText = "Xoá đăng nhập, cookie và dữ liệu Messenger lưu trên máy này. Tin nhắn trên tài khoản không bị xoá. Lần sau phải đăng nhập lại."
+        a.addButton(withTitle: "Đăng xuất và xoá"); a.addButton(withTitle: "Hủy")
+        a.buttons.first?.hasDestructiveAction = true
+        guard let w = cuaSoCaiDat else { return }
+        a.beginSheetModal(for: w) { [weak self] kq in if kq == .alertFirstButtonReturn { self?.dangXuatVaXoa() } }
+    }
+    func dangXuatVaXoa() {
+        cuaSoPhu.forEach { $0.close() }                       // đóng cửa sổ gọi đang mở
+        let kho = WKWebsiteDataStore.default(), loai = WKWebsiteDataStore.allWebsiteDataTypes()
+        kho.fetchDataRecords(ofTypes: loai) { truoc in
+            kho.removeData(ofTypes: loai, modifiedSince: .distantPast) {
+                kho.httpCookieStore.getAllCookies { banh in
+                    NSLog("VM: ĐĂNG XUẤT – đã xoá dữ liệu %d trang web, còn %d cookie", truoc.count, banh.count)
+                    self.webView.load(URLRequest(url: URL(string: "https://www.messenger.com/")!))
+                    self.baoCapNhat("Đã đăng xuất", "Đã xoá đăng nhập và dữ liệu Messenger trên máy này.")
+                }
+            }
+        }
+    }
+    @objc func kiemTraCapNhatMenu() { kiemTraCapNhat(imLang: false) }
+
+    // imLang = kiểm ngầm khi chạy thử (không báo "đang mới nhất", không báo lỗi mạng)
+    func kiemTraCapNhat(imLang: Bool) {
+        trangThaiCapNhat = "Đang kiểm tra…"
+        var rq = URLRequest(url: urlKiemTraCapNhat, timeoutInterval: 20)
+        rq.setValue("MessengerVdk/\(banHienTai)", forHTTPHeaderField: "User-Agent")
+        rq.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        URLSession.shared.dataTask(with: rq) { du, _, loi in DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            UserDefaults.standard.set(Date(), forKey: "lanKiemCapNhat")
+            guard let du, let j = try? JSONSerialization.jsonObject(with: du) as? [String: Any], let tag = j["tag_name"] as? String,
+                  let trang = URL(string: j["html_url"] as? String ?? "https://github.com/\(khoGitHub)/releases") else {
+                NSLog("VM: CẬP NHẬT – không kiểm tra được: %@", loi?.localizedDescription ?? "dữ liệu lạ")
+                self.trangThaiCapNhat = "Không kiểm tra được (mất mạng?)"
+                if !imLang { self.baoCapNhat("Không kiểm tra được bản mới", loi?.localizedDescription ?? "GitHub trả dữ liệu lạ.") }
+                return
+            }
+            let ds = (j["assets"] as? [[String: Any]] ?? []).compactMap { a -> (String, URL)? in
+                guard let t = a["name"] as? String, let u = URL(string: a["browser_download_url"] as? String ?? "") else { return nil }
+                return (t, u)
+            }
+            let zip = ds.first { $0.0.hasSuffix(".zip") }
+            let b = BanPhatHanh(ban: tag.hasPrefix("v") ? String(tag.dropFirst()) : tag, ghiChu: j["body"] as? String ?? "",
+                                zip: zip?.1, sig: zip.flatMap { z in ds.first { $0.0 == z.0 + ".sig" }?.1 }, trang: trang)
+            NSLog("VM: CẬP NHẬT – mới nhất %@, đang dùng %@", b.ban, banHienTai)
+            if soSanhBan(b.ban, banHienTai) <= 0 {
+                self.trangThaiCapNhat = "Đang dùng bản mới nhất (\(banHienTai))"
+                if !imLang { self.baoCapNhat("Bạn đang dùng bản mới nhất", "Messenger Vdk \(banHienTai).") }
+                return
+            }
+            self.trangThaiCapNhat = "Có bản mới \(b.ban)"
+            self.hoiCapNhat(b)
+        } }.resume()
+    }
+    func baoCapNhat(_ tieuDe: String, _ chu: String) {
+        let a = NSAlert(); a.messageText = tieuDe; a.informativeText = chu; a.addButton(withTitle: "OK")
+        if let w = cuaSoCaiDat, w.isVisible { a.beginSheetModal(for: w) } else { NSApp.activate(); a.runModal() }
+    }
+    func hoiCapNhat(_ b: BanPhatHanh) {
+        // Ghi chú Release (Markdown) → chữ thường, tối đa 14 dòng
+        let ghi = b.ghiChu.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "#", with: "")
+            .split(separator: "\n", omittingEmptySubsequences: true).prefix(14).joined(separator: "\n")
+        let a = NSAlert(); a.messageText = "Có bản Messenger Vdk \(b.ban)"
+        a.informativeText = "Bạn đang dùng \(banHienTai).\n\n\(ghi)"
+        let tuCai = b.zip != nil && b.sig != nil
+        a.addButton(withTitle: tuCai ? "Cập nhật ngay" : "Mở trang tải"); a.addButton(withTitle: "Để sau")
+        let tu = ProcessInfo.processInfo.environment["VM_CAPNHAT_TU"] == "1"        // chạy thử: tự chọn "Cập nhật ngay"
+        NSApp.activate()
+        let kq = tu ? .alertFirstButtonReturn : a.runModal()
+        NSLog("VM: CẬP NHẬT – hộp hỏi %@ → %@", b.ban, kq == .alertFirstButtonReturn ? "cập nhật" : "để sau")
+        if kq == .alertFirstButtonReturn { if tuCai { taiVaCai(b) } else { NSWorkspace.shared.open(b.trang) } }
+    }
+    func taiVaCai(_ b: BanPhatHanh) {
+        let dich = Bundle.main.bundleURL
+        guard FileManager.default.isWritableFile(atPath: dich.deletingLastPathComponent().path), let zipU = b.zip, let sigU = b.sig else {
+            NSLog("VM: CẬP NHẬT – thư mục app không ghi được → mở trang tải")
+            baoCapNhat("Không tự cập nhật được", "Thư mục chứa app không cho ghi. Mở trang tải để cài bản \(b.ban) bằng tay.")
+            NSWorkspace.shared.open(b.trang); return
+        }
+        let cho = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 90), styleMask: [.titled], backing: .buffered, defer: false)
+        cho.title = "Đang cập nhật"
+        let quay = NSProgressIndicator(frame: NSRect(x: 20, y: 35, width: 20, height: 20)); quay.style = .spinning; quay.startAnimation(nil)
+        let chu = NSTextField(labelWithString: "Đang tải Messenger Vdk \(b.ban)…"); chu.frame = NSRect(x: 52, y: 36, width: 250, height: 18)
+        cho.contentView?.addSubview(quay); cho.contentView?.addSubview(chu); cho.center(); cho.makeKeyAndOrderFront(nil)
+        Task {
+            do {
+                let tam = FileManager.default.temporaryDirectory.appendingPathComponent("messenger-vdk-cap-nhat-\(UUID().uuidString)")
+                try FileManager.default.createDirectory(at: tam, withIntermediateDirectories: true)
+                let (fz, _) = try await URLSession.shared.download(from: zipU)
+                let (fs, _) = try await URLSession.shared.download(from: sigU)
+                let zip = tam.appendingPathComponent("moi.zip"); try FileManager.default.moveItem(at: fz, to: zip)
+                // 1. Chữ ký số: zip phải do khoá bí mật của anh ký
+                let sigChu = try String(contentsOf: fs, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let sig = Data(base64Encoded: sigChu), let kcc = Data(base64Encoded: khoaCongKhaiCapNhat),
+                      let khoa = try? Curve25519.Signing.PublicKey(rawRepresentation: kcc),
+                      khoa.isValidSignature(sig, for: try Data(contentsOf: zip)) else { throw LoiCapNhat.lyDo("Chữ ký số của bản tải về không khớp – không cài (có thể file bị sửa).") }
+                // 2. Giải nén, kiểm đúng app, đúng bản, chữ ký mã hợp lệ
+                let giai = tam.appendingPathComponent("giai")
+                try chayLenh("/usr/bin/ditto", ["-x", "-k", zip.path, giai.path])
+                guard let app = try FileManager.default.contentsOfDirectory(at: giai, includingPropertiesForKeys: nil).first(where: { $0.pathExtension == "app" }),
+                      let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")),
+                      info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier,
+                      info["CFBundleShortVersionString"] as? String == b.ban else { throw LoiCapNhat.lyDo("File tải về không đúng app / đúng bản \(b.ban).") }
+                try chayLenh("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
+                await MainActor.run { self.thayVaMoLai(app, dich, tam, tuBan: banHienTai) }
+            } catch {
+                await MainActor.run {
+                    cho.orderOut(nil)
+                    NSLog("VM: CẬP NHẬT lỗi – %@", error.localizedDescription)
+                    self.trangThaiCapNhat = "Cập nhật lỗi – vẫn dùng \(banHienTai)"
+                    self.baoCapNhat("Cập nhật không thành công", "\(error.localizedDescription)\n\nApp vẫn dùng bản \(banHienTai).")
+                }
+            }
+        }
+    }
+    func chayLenh(_ lenh: String, _ thamSo: [String]) throws {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: lenh); p.arguments = thamSo
+        p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        if p.terminationStatus != 0 { throw LoiCapNhat.lyDo("Lệnh \((lenh as NSString).lastPathComponent) lỗi (\(p.terminationStatus)).") }
+    }
+    // Script nhỏ chờ app thoát hẳn → đổi app cũ sang bản mới (lỗi thì trả bản cũ) → mở lại
+    func thayVaMoLai(_ moi: URL, _ dich: URL, _ tam: URL, tuBan: String) {
+        let sh = tam.appendingPathComponent("thay.sh")
+        try? """
+        #!/bin/sh
+        i=0; while kill -0 "$1" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done
+        if mv "$2" "$4"; then
+          if mv "$3" "$2"; then open "$2"; exit 0; fi
+          mv "$4" "$2"
+        fi
+        open "$2"
+        """.write(to: sh, atomically: true, encoding: .utf8)
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = [sh.path, "\(ProcessInfo.processInfo.processIdentifier)", dich.path, moi.path, tam.appendingPathComponent("cu.app").path]
+        do { try p.run() } catch { NSLog("VM: CẬP NHẬT – không chạy được script thay: %@", error.localizedDescription); return }
+        UserDefaults.standard.set(tuBan, forKey: "vuaCapNhatTu")
+        NSLog("VM: CẬP NHẬT – đã kiểm chữ ký, thoát để thay bản mới")
+        NSApp.terminate(nil)
     }
 }
 

@@ -4,7 +4,7 @@
 - **Chip Apple** (M1, M2, M3…) và **macOS 14** trở lên. Xem ở menu **Apple** (logo quả táo góc trên bên trái) → **Giới thiệu về máy Mac**. Máy chip Intel không chạy được.
 
 ## 2. Tải
-Tải **[Messenger.Vdk.0.6.0.dmg](https://github.com/Vduck141/messenger-vdk/releases/latest)** (mục *Assets*).
+Vào **[Releases](https://github.com/Vduck141/messenger-vdk/releases/latest)** → mục *Assets* → tải file **`Messenger.Vdk.<bản>.dmg`**.
 
 ## 3. Cài
 Bấm đúp file DMG → cửa sổ hiện ra → **kéo Messenger Vdk vào Applications**. Xong có thể tháo ổ DMG (bấm ⏏ trong Finder).
@@ -45,7 +45,11 @@ Lệnh chỉ bỏ dấu «tải từ Internet» của riêng app này, không đ
 - Gọi video / thoại lần đầu → cho phép **Camera** và **Micrô**.
 - Bộ gõ VietTelex bị lặp dấu → VietTelex: Cài đặt → Bảng cơ chế gõ → thêm `com.vduck.messenger` → **Gõ trực tiếp**. Bộ gõ Apple chạy ngay.
 
-## 6. Lỗi hay gặp
+## 6. Cập nhật bản mới
+**Cài đặt (⌘,) → Chung → Kiểm tra cập nhật** (hoặc menu **Messenger Vdk → Kiểm tra cập nhật…**). Có bản mới → **Cập nhật ngay** → app tự tải, kiểm chữ ký số, thay bản cũ và mở lại. Không phải làm lại bước «Vẫn mở». Đăng nhập, cài đặt giữ nguyên. App không tự hỏi – chỉ kết nối GitHub khi bạn bấm.
+(Bản 0.6.0 chưa có nút này → tải 0.6.1 về cài đè 1 lần.)
+
+## 7. Lỗi hay gặp
 | Hiện tượng | Cách sửa |
 |---|---|
 | *«Messenger Vdk bị hỏng và không thể mở»* | Dùng trường hợp C (lệnh Terminal) |
@@ -53,5 +57,6 @@ Lệnh chỉ bỏ dấu «tải từ Internet» của riêng app này, không đ
 | *«Không thể tải đoạn chat»*, tin không gửi được | Có 2 bản app đang mở – thoát hết (⌘Q) rồi mở lại 1 bản |
 | Không có thông báo | Cài đặt hệ thống → Thông báo → Messenger Vdk → bật **Cho phép thông báo** |
 
-## 7. Gỡ cài đặt
-Thoát app (⌘Q) → kéo **Messenger Vdk** trong Applications vào Thùng rác. Muốn xoá sạch cả đăng nhập: xoá thêm `~/Library/WebKit/com.vduck.messenger`, `~/Library/HTTPStorages/com.vduck.messenger*`, `~/Library/Logs/Messenger Vdk`.
+## 8. Gỡ cài đặt
+Máy dùng chung / đưa máy cho người khác: **Cài đặt → Chung → Đăng xuất và xoá dữ liệu…** (xoá đăng nhập + dữ liệu Messenger trên máy).
+Gỡ app: thoát app (⌘Q) → kéo **Messenger Vdk** trong Applications vào Thùng rác. Muốn xoá sạch cả đăng nhập: xoá thêm `~/Library/WebKit/com.vduck.messenger`, `~/Library/HTTPStorages/com.vduck.messenger*`, `~/Library/Logs/Messenger Vdk`.

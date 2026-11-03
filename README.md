@@ -11,12 +11,14 @@ App Messenger gọn nhẹ cho macOS (chip Apple), viết bằng Swift + WKWebVie
 - **Tải ảnh / file**: hỏi lưu vào đâu (hoặc lưu thẳng một thư mục), giữ độ phân giải gốc.
 - **Phím tắt**: ⌘N tin nhắn mới · ⌘1–9 mở đoạn chat · ⌘F / ⇧⌘F tìm · ⌘S ẩn/hiện thông tin cuộc trò chuyện · ⇧⌘S ẩn/hiện thanh bên · ⌘/ bảng phím tắt.
 - **Cài đặt (⌘,)**: thông báo, cuộc gọi, tải file, mở cùng máy, nhật ký gỡ lỗi.
+- **Cập nhật trong app**: Cài đặt → Chung → *Kiểm tra cập nhật* – bản mới được kiểm chữ ký số (Ed25519) rồi tự cài. App không tự hỏi, chỉ kết nối GitHub khi bạn bấm.
+- **Đăng xuất và xoá dữ liệu** (Cài đặt → Chung) cho máy dùng chung.
 - Giữ đăng nhập, chỉ chạy 1 bản, giao diện tiếng Việt.
 
 ## Cài đặt
 Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
 
-1. Tải **`Messenger.Vdk.0.6.0.dmg`** ở mục **[Releases](../../releases/latest)**.
+1. Tải file **`.dmg`** mới nhất ở mục **[Releases](../../releases/latest)**.
 2. Bấm đúp file DMG → kéo **Messenger Vdk** vào **Applications**.
 
    <img src="anh/cua-so-dmg.png" width="460" alt="Cửa sổ DMG">
