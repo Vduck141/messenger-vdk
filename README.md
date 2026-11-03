@@ -38,6 +38,8 @@ Ra `Messenger Vdk.app` trong `$TMPDIR/vduck-messenger-build`. Cần Xcode Comman
 Mã nguồn: `Ma nguon/main.swift` (toàn bộ app, chú thích tiếng Việt).
 
 ## Ghi công
-Ý tưởng từ **MessengerApp** của Stefan – [stefanminch/messenger-mac](https://github.com/stefanminch/messenger-mac) (MIT). Bản này viết lại từ đầu bằng Swift. Giấy phép: [MIT](LICENSE).
+Ý tưởng từ **MessengerApp** của Stefan – [stefanminch/messenger-mac](https://github.com/stefanminch/messenger-mac) (MIT). Bản này viết lại từ đầu bằng Swift.
+
+Giấy phép: [CC BY-NC 4.0](LICENSE) – được dùng, chia sẻ, sửa lại nếu ghi nguồn, **không dùng vào mục đích thương mại**. (Bản 0.6.0 và 0.6.1 phát hành trước đó theo MIT.)
 
 © 2026 by Vduck
