@@ -14,9 +14,21 @@ App Messenger gọn nhẹ cho macOS (chip Apple), viết bằng Swift + WKWebVie
 - Giữ đăng nhập, chỉ chạy 1 bản, giao diện tiếng Việt.
 
 ## Cài đặt
-1. Tải `Messenger Vdk 0.6.0.zip` ở mục **[Releases](../../releases)**, giải nén, kéo `Messenger Vdk.app` vào **Applications**.
-2. Lần đầu mở: **chuột phải → Mở** (app chưa được Apple công chứng).
-3. Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
+Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
+
+1. Tải **`Messenger Vdk 0.6.0.dmg`** ở mục **[Releases](../../releases/latest)** (hoặc file `.zip`).
+2. Bấm đúp file DMG → kéo **Messenger Vdk** vào thư mục **Applications**.
+3. Mở app lần đầu: macOS sẽ chặn vì app **chưa được Apple công chứng** (notarize – cần gói Apple Developer trả phí). Hộp cảnh báo chỉ có nút «Chuyển vào Thùng rác» và «Xong» → bấm **Xong**.
+
+   <img src="anh/canh-bao-lan-dau.png" width="260" alt="Hộp cảnh báo khi mở lần đầu">
+
+4. Mở **Cài đặt hệ thống → Quyền riêng tư & Bảo mật** → kéo xuống mục **Bảo mật**, thấy dòng *«"Messenger Vdk" đã bị chặn để bảo vệ máy Mac của bạn.»* → bấm **Vẫn mở** → nhập mật khẩu máy.
+5. Mở lại app (nếu macOS hỏi lại thì bấm **Mở**). Từ lần sau mở bình thường.
+
+> Từ macOS 15, cách «chuột phải → Mở» **không còn** bỏ qua được cảnh báo – phải làm bước 4.
+> Dùng Terminal (nhanh hơn, chỉ khi bạn tin app này): `xattr -dr com.apple.quarantine "/Applications/Messenger Vdk.app"`
+
+Gỡ cài đặt: thoát app → kéo `Messenger Vdk.app` trong Applications vào Thùng rác. Gỡ app không xoá đăng nhập; muốn xoá sạch thì xoá thêm `~/Library/WebKit/com.vduck.messenger`, `~/Library/HTTPStorages/com.vduck.messenger*` và `~/Library/Logs/Messenger Vdk`.
 
 Bộ gõ tiếng Việt: bộ gõ Apple chạy ngay. VietTelex: thêm app (bundle id `com.vduck.messenger`) vào bảng cơ chế gõ → **Gõ trực tiếp**.
 
