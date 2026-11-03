@@ -47,7 +47,7 @@ Lệnh chỉ bỏ dấu «tải từ Internet» của riêng app này, không đ
 
 ## 6. Cập nhật bản mới
 **Cài đặt (⌘,) → Chung → Kiểm tra cập nhật** (hoặc menu **Messenger Vdk → Kiểm tra cập nhật…**). Có bản mới → **Cập nhật ngay** → app tự tải, kiểm chữ ký số, thay bản cũ và mở lại. Không phải làm lại bước «Vẫn mở». Đăng nhập, cài đặt giữ nguyên. App không tự hỏi – chỉ kết nối GitHub khi bạn bấm.
-(Bản 0.6.0 chưa có nút này → tải 0.6.1 về cài đè 1 lần.)
+(Bản 0.6.0 chưa có nút này → tải bản mới nhất về cài đè 1 lần.)
 
 ## 7. Lỗi hay gặp
 | Hiện tượng | Cách sửa |

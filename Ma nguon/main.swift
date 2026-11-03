@@ -1769,6 +1769,10 @@ extension AppDelegate {
 let ngayPhatHanh = "03/11/2026"
 let tenApp = "Messenger Vdk"           // tên app (anh chốt 03/11; trước: Vduck Messenger → Messenger → Messenger AppD)
 let coGiMoi = """
+0.6.2 – 03/11/2026
+• Sửa chữ trong Cài đặt → Thông báo (xưng «bạn»)
+• Giấy phép mới: CC BY-NC 4.0 – dùng, chia sẻ tự do, không dùng thương mại
+
 0.6.1 – 03/11/2026
 • Cập nhật ngay trong app: Cài đặt → Chung → Kiểm tra cập nhật (hoặc menu Messenger Vdk). Bản mới được kiểm chữ ký số rồi tự cài, mở lại – không phải bấm «Vẫn mở» lại
 • Nút «Đăng xuất và xoá dữ liệu» (Cài đặt → Chung) cho máy dùng chung
@@ -1933,7 +1937,7 @@ extension AppDelegate {
         trangDoc([
             tieuDeMuc("Tin nhắn", "message"),
             the([congTac("baoTinNhan", true, "Báo tin nhắn mới khi không mở app") { [weak self] _ in self?.guiCaiDatChoTrang() },
-                 chuGhi("App tự xem danh sách chat 2 giây/lần khi anh ở app khác (Messenger trên Safari không tự gửi thông báo tin nhắn). Không lưu nội dung."),
+                 chuGhi("App tự xem danh sách chat 2 giây/lần khi bạn ở app khác (Messenger trên Safari không tự gửi thông báo tin nhắn). Không lưu nội dung."),
                  congTac("boTinGoi", true, "Bỏ thông báo tin về cuộc gọi khi bảng gọi đang hiện") { [weak self] _ in self?.guiCaiDatChoTrang() },
                  chuGhi("Tránh thông báo «đã bắt đầu / đã kết thúc cuộc gọi» trùng với bảng gọi. Vẫn giữ thông báo «cuộc gọi nhỡ».")]),
             tieuDeMuc("Cuộc gọi đến", "phone.arrow.down.left"),
