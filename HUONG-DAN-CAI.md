@@ -43,7 +43,18 @@ Lệnh chỉ bỏ dấu «tải từ Internet» của riêng app này, không đ
 - Đăng nhập Messenger như trên web.
 - macOS hỏi **Thông báo** → **Cho phép** (để nhận tin nhắn, cuộc gọi khi ở app khác).
 - Gọi video / thoại lần đầu → cho phép **Camera** và **Micrô**.
-- Bộ gõ VietTelex bị lặp dấu → VietTelex: Cài đặt → Bảng cơ chế gõ → thêm `com.vduck.messenger` → **Gõ trực tiếp**. Bộ gõ Apple chạy ngay.
+- Gõ tiếng Việt bị lỗi dấu (lặp dấu, mất chữ) → xem mục **Bộ gõ tiếng Việt** ngay dưới.
+
+### Bộ gõ tiếng Việt
+- **Bộ gõ Apple** (Telex/VNI): dùng được ngay, không cần chỉnh.
+- **VietTelex**:
+  1. Cập nhật VietTelex lên bản mới nhất.
+  2. Mở Cài đặt VietTelex → mục **Cách gõ trực tiếp** → tích 2 ô:
+     - ☑ *Dùng cách gõ an toàn cho ứng dụng chưa nhận diện*
+     - ☑ *Giữ VietTelex khi macOS tự đổi bộ gõ*
+  3. Vẫn lỗi → Cài đặt → tắt «Ẩn tính năng nâng cao» → tab **Bảng cơ chế gõ** → Thêm app → dán `com.vduck.messenger` → chọn **Gõ trực tiếp**.
+- **OpenKey**: mở cài đặt OpenKey → bật **Sửa lỗi gợi ý trình duyệt** (mặc định đã bật).
+- **Bộ gõ khác** (EVKey, GoTiengViet…) mà vẫn lỗi: chụp màn hình chữ bị sai, gửi cho mình.
 
 ## 6. Cập nhật bản mới
 **Cài đặt (⌘,) → Chung → Kiểm tra cập nhật** (hoặc menu **Messenger Vdk → Kiểm tra cập nhật…**). Có bản mới → **Cập nhật ngay** → app tự tải, kiểm chữ ký số, thay bản cũ và mở lại. Không phải làm lại bước «Vẫn mở». Đăng nhập, cài đặt giữ nguyên. App không tự hỏi – chỉ kết nối GitHub khi bạn bấm.

@@ -17,6 +17,7 @@ fi
 
 cp "$GOC/Info.plist" "$APP/Contents/Info.plist"
 cp "$GOC/icon.icns" "$APP/Contents/Resources/icon.icns"
+mkdir -p "$APP/Contents/Resources/logo" && cp "$GOC"/logo/[!.]*.png "$APP/Contents/Resources/logo/"   # 10 biểu tượng để chọn (bỏ file ẩn ._ của ổ T7)
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # Chứng chỉ ký: biến KY_APP, hoặc file .ky-app cạnh build.sh (không đưa lên GitHub); không có → ký tạm (ad-hoc "-")

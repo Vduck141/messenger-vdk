@@ -45,6 +45,34 @@ func laTrongApp(_ url: URL) -> Bool {
     return tenMienTrongApp.contains { host == $0 || host.hasSuffix("." + $0) }
 }
 
+// MARK: Thanh cuộn
+// Máy cắm chuột → macOS hiện thanh cuộn có rãnh (kiểu "legacy"). Safari BỎ QUA màu rãnh Messenger đặt (scrollbar-color),
+// vẽ rãnh trong suốt → đoạn chat chủ đề màu lộ dải màu qua rãnh, cả thanh trượt bị tô màu (anh báo 03/11).
+// Anh chốt 03/11: xoá thanh trong vùng chat chính ([role=main]: khung tin nhắn, khung thông tin) và thanh của cả trang
+// (sát mép phải, không cuộn được gì); lăn chuột vẫn cuộn bình thường. Danh sách chat bên trái giữ thanh.
+// Ẩn bằng CSS thuần → mất ngay khi trang vẽ (bản dò 2 giây/lần làm thanh hiện rồi mới mất, khựng – anh báo 03/11).
+// Kiểu thanh cuộn đo ngay trong trang (div thử overflow:scroll có chiếm chỗ không) lúc trang dựng xong + 3 giây/lần
+// (cắm / rút chuột); hỏi Swift lúc mở app bị lỡ (cờ không bật – dò thật 03/11).
+let jsThanhCuon = """
+    (() => {
+      const css = `
+        html[data-vm-cuon], html[data-vm-cuon] body,
+        html[data-vm-cuon] [role="main"], html[data-vm-cuon] [role="main"] * { scrollbar-width: none !important; }`;
+      const s = document.createElement('style'); s.id = 'vm-thanh-cuon'; s.textContent = css;
+      document.documentElement.appendChild(s);
+      const datCo = () => {
+        if (!document.body) return;
+        const d = document.createElement('div');
+        d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll;visibility:hidden';
+        document.body.appendChild(d); const co = d.offsetWidth - d.clientWidth > 0; d.remove();
+        if (co !== document.documentElement.hasAttribute('data-vm-cuon'))
+          co ? document.documentElement.setAttribute('data-vm-cuon', '') : document.documentElement.removeAttribute('data-vm-cuon');
+      };
+      document.addEventListener('DOMContentLoaded', datCo);
+      setInterval(datCo, 3000);
+    })();
+    """
+
 // MARK: Bước 2 – Thông báo
 // WKWebView KHÔNG có sẵn Notification như Chrome/Electron → trang tưởng trình duyệt không hỗ trợ.
 // Cách làm: chèn đoạn JS này vào trang TRƯỚC khi trang chạy (documentStart), tạo một "Notification giả".
@@ -54,6 +82,39 @@ let jsThongBao = """
 (function () {
   const guiSwift = (d) => window.webkit.messageHandlers.vmThongBao.postMessage(d);
   guiSwift({ nhatKy: 'Notification gốc của trang: ' + typeof window.Notification });
+  // Trang được mở kiểu gì (navigate = mở link / reload = tải lại / back_forward) → biết vì sao trang tải lại (03/11)
+  addEventListener('DOMContentLoaded', () => {
+    const n = performance.getEntriesByType('navigation')[0];
+    guiSwift({ nhatKy: 'MỞ TRANG kiểu=' + (n ? n.type : '?') + ' đường=' + location.pathname.replace(/[0-9]+/g, 'N') });
+  });
+  // Lỗi JS của trang → nhật ký (tìm lỗi đoạn chat tải mãi không xong – anh báo 03/11). Chỉ ghi loại lỗi + 140 ký tự đầu,
+  // số → N, chữ trong ngoặc kép → "…" (tránh lọt tên / nội dung); tối đa 40 dòng mỗi lần tải trang.
+  let soLoi = 0;
+  const ghiLoi = (loai, e) => {
+    if (soLoi++ >= 40) return;
+    let m = (e && (e.message || e.reason && e.reason.message || e.reason)) || e;
+    m = String(m && m.stack ? m.message : m).replace(/"[^"]*"|'[^']*'/g, '"…"').replace(/[0-9]+/g, 'N').slice(0, 140);
+    const ten = (e && e.reason && e.reason.name) || (e && e.error && e.error.name) || '';
+    guiSwift({ nhatKy: 'LỖI TRANG ' + loai + (ten ? ' ' + ten : '') + ': ' + m });
+  };
+  addEventListener('error', (e) => ghiLoi('error', e), true);
+  addEventListener('unhandledrejection', (e) => ghiLoi('promise', e));
+  // Dò worker: Messenger báo "WorkerHealthStatus: shared_not_exists" (03/11) – ghi trang có tạo SharedWorker / Worker không,
+  // tạo có lỗi không (chỉ ghi máy chủ + đường dẫn, số → N, bỏ phần ?…).
+  if (window.__vmDoWorker) for (const ten of ['SharedWorker', 'Worker']) {
+    const Goc = window[ten]; if (!Goc) { guiSwift({ nhatKy: 'DÒ WORKER: không có ' + ten }); continue; }
+    window[ten] = function (url, tuyChon) {
+      let u = String(url); try { const x = new URL(u, location.href); u = x.protocol === 'blob:' ? 'blob:' : x.host + x.pathname; } catch (e) {}
+      u = u.replace(/[0-9]+/g, 'N').slice(0, 80);
+      try {
+        const w = new Goc(url, tuyChon);
+        guiSwift({ nhatKy: 'DÒ WORKER: tạo ' + ten + ' ' + u + ' ok' });
+        w.addEventListener && w.addEventListener('error', (e) => guiSwift({ nhatKy: 'DÒ WORKER: ' + ten + ' ' + u + ' báo lỗi ' + String(e.message || e.type).slice(0, 80) }));
+        return w;
+      } catch (e) { guiSwift({ nhatKy: 'DÒ WORKER: tạo ' + ten + ' ' + u + ' NÉM LỖI ' + e.name + ' ' + String(e.message).slice(0, 80) }); throw e; }
+    };
+    window[ten].prototype = Goc.prototype;
+  }
   const danhSach = {};   // id → đối tượng thông báo, để khi bấm thì gọi lại onclick của trang
   class ThongBao {
     constructor(tieuDe, tuyChon) {
@@ -90,7 +151,7 @@ let jsThongBao = """
   // Cách làm: 2 giây/lần xem 15 dòng chat đầu; dòng chưa đọc = có chữ ĐẬM; dòng chưa đọc có DÒNG TIN (chữ thứ 2) mới → báo.
   // 15 giây đầu sau khi mở trang chỉ ghi nhớ, không báo (tránh báo nhầm lúc danh sách vừa tải – 08:19, 08:21 03/11).
   // ĐO: tổng thời gian các vòng dò chạy trên trang, 5 phút ghi 1 lần (kiểm app có làm trang nặng không)
-  const ton = {}, tinhTon = (ten, f) => { const t = performance.now(); try { f(); } finally { ton[ten] = (ton[ten] || 0) + performance.now() - t; } };
+  const ton = {}, tinhTon = (ten, f) => { if (window.__vmTatVong) return; const t = performance.now(); try { f(); } finally { ton[ten] = (ton[ten] || 0) + performance.now() - t; } };
   let tuLuc = performance.now();
   const ghiTon = () => { guiSwift({ nhatKy: 'ĐO JS ' + ((performance.now() - tuLuc) / 1000).toFixed(0) + 's: ' +
       Object.entries(ton).map(([k, v]) => k + ' ' + v.toFixed(0) + 'ms').join(', ') });
@@ -115,6 +176,12 @@ let jsThongBao = """
     const tin = (dong.length > 1 ? dong.slice(1) : ds.slice(1).map(d => d.t)).join(' ').replace(/:\\s+/, ': ').trim();
     return { a, ten, tin: tin || 'Tin nhắn mới', khoa: a.getAttribute('href') + '|' + tin };
   }).filter(Boolean);
+  // Menu trên thanh menu (Swift gọi khi anh mở menu): 9 đoạn chat đầu – tên, href, chưa đọc (có chữ đậm). Không lấy nội dung tin.
+  window.__vmDsChat = () => [...document.querySelectorAll('[role="row"]')].map(r => {
+    const a = r.querySelector('a[href*="/t/"]'); if (!a) return null;
+    const ten = (a.innerText || '').split('\\n').map(t => t.trim()).filter(t => t && !laNhan(t))[0] || 'Đoạn chat';
+    return { ten, href: a.getAttribute('href'), chua: doanChu(r).filter(d => !laNhan(d.t)).some(d => d.dam) };
+  }).filter(Boolean).slice(0, 9);
   // Anh đang nhìn app → NGHỈ (không quét, đỡ nặng – anh báo chậm 03/11); vừa rời app → quét 1 lượt chỉ để ghi nhớ.
   let vuaNhin = true;
   setInterval(() => tinhTon('dòng', () => {
@@ -133,7 +200,16 @@ let jsThongBao = """
     if (!moi.length) { guiSwift({ nhatKy: 'DÒ TB: bỏ thông báo tin về cuộc gọi (đang có bảng gọi)' }); return; }
     moi.slice(0, 3).forEach(d => {
       const tb = new ThongBao(d.ten, { body: d.tin, tag: d.a.getAttribute('href') });
-      tb.onclick = () => d.a.click();
+      // Bấm thông báo → mở đoạn chat. Dòng chat lúc tạo thông báo thường đã bị Messenger vẽ lại (thẻ cũ rời khỏi trang);
+      // bấm thẻ đã rời trang thì trình duyệt mở link kiểu thường → TẢI LẠI CẢ TRANG (anh báo «hay bị tải lại» 03/11).
+      // → tìm lại dòng chat đang hiện theo href; không thấy thì chuyển trang "mềm" (pushState + popstate), không tải lại.
+      const href = d.a.getAttribute('href');
+      tb.onclick = () => {
+        const a = d.a.isConnected ? d.a : document.querySelector('a[href="' + CSS.escape(href) + '"]');
+        if (a) { a.click(); guiSwift({ nhatKy: 'BẤM TB: ' + (a === d.a ? 'dòng chat cũ còn' : 'tìm lại dòng chat') }); return; }
+        history.pushState({}, '', href); dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+        guiSwift({ nhatKy: 'BẤM TB: không thấy dòng chat → chuyển trang mềm' });
+      };
     });
     guiSwift({ nhatKy: 'TB tự tạo: ' + moi.length + ' tin mới' });
   }), 2000);
@@ -407,6 +483,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     var giuHanhDong: [HanhDong] = []                 // giữ các hàm xử lý công tắc trong Cài đặt
     var chongNgu: NSObjectProtocol?                  // giữ app không bị App Nap
     var goiDen: (chu: String, anh: String, video: Bool, nhom: Bool)?
+    // Thanh menu (anh duyệt 03/11)
+    var oThanhMenu: NSStatusItem?
+    var menuThanhMenu: NSMenu?
+    var dsChatMenu: [(ten: String, href: String, chua: Bool)] = []
+    var soChuaDoc = 0
+    var batDauGoi: [ObjectIdentifier: Date] = [:]
+    var nhipThanhMenu: Timer?
+    var nhay = false
     var choLuu: [() -> Void] = []                            // hộp "Lưu vào đâu" đang chờ (tải nhiều file cùng lúc)          // hộp "Cuộc gọi đến" đang hiện trên trang
     var bangGoi: BangGoiDen?                         // bảng nổi báo cuộc gọi đến
     var taiVe: [ObjectIdentifier: URL] = [:]       // file đang tải → nơi lưu
@@ -419,6 +503,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                                                           reason: "Nhận tin nhắn và cuộc gọi Messenger khi chạy ngầm")
         NSWindow.allowsAutomaticWindowTabbing = false   // không cần tab → bỏ các mục Tab thừa trong menu Cửa sổ
         taoMenu()
+        apDungBieuTuong(bieuTuongDangDung, luonGhiFinder: false)   // biểu tượng anh chọn trong Cài đặt → Biểu tượng
+        apDungHienO(dangMo: true)                                  // Dock / thanh menu (Cài đặt → Biểu tượng → Thanh menu)
+        // VM_DEM=1: đối chiếu số chưa đọc – in ra stdout (KHÔNG vào file nhật ký) mọi dòng chat đang tải: tên, có chữ đậm không,
+        // + mọi nhãn aria có «chưa đọc / unread». Chỉ đọc, không bấm (mở chat = đánh dấu đã đọc).
+        if ProcessInfo.processInfo.environment["VM_DEM"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) {
+                self.webView.evaluateJavaScript("""
+                    JSON.stringify({
+                      dong: [...document.querySelectorAll('[role="row"]')].map((r, i) => {
+                        const a = r.querySelector('a[href*="/t/"]'); if (!a) return null;
+                        const dam = [...r.querySelectorAll('span')].filter(s => s.children.length === 0 && s.textContent.trim() && parseInt(getComputedStyle(s).fontWeight) >= 600).map(s => s.textContent.trim().slice(0, 25));
+                        return { i, ten: (a.innerText || '').split('\\n')[0], dam, dsChat: !!(window.__vmDsChat && window.__vmDsChat().some(c => c.href === a.getAttribute('href') && c.chua)) };
+                      }).filter(Boolean),
+                      nhan: [...new Set([...document.querySelectorAll('[aria-label]')].map(e => e.getAttribute('aria-label')).filter(t => /chưa đọc|unread/i.test(t)))]
+                    })
+                    """) { kq, loi in print("VM_DEM", kq ?? "", loi?.localizedDescription ?? ""); fflush(stdout) }
+            }
+        }
+        if ProcessInfo.processInfo.environment["VM_THU_MENU"] != nil { DispatchQueue.main.asyncAfter(deadline: .now() + 12) { self.thuThanhMenu() } }
+        // Chạy thử VM_THU_BT=<id>: mở Cài đặt → Biểu tượng, bấm hộ ô <id> (kèm VM_CHUP_CD để chụp trang)
+        if let id = ProcessInfo.processInfo.environment["VM_THU_BT"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                self.moCaiDat()
+                guard let tab = self.cuaSoCaiDat?.contentView?.viewWithTag(77) as? NSSegmentedControl else { return }
+                tab.selectedSegment = 4; self.chonTab(tab)
+                let ten = cacBieuTuong.first { $0.id == id }?.ten
+                func tim(_ v: NSView) -> NSButton? { (v as? NSButton).flatMap { $0.accessibilityLabel() == ten ? $0 : nil } ?? v.subviews.lazy.compactMap(tim).first }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.trangCaiDat.flatMap(tim)?.performClick(nil) }
+            }
+        }
         // Đang gọi mà anh chuyển sang app khác → thu cửa sổ cuộc gọi thành PiP
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.tuDongPiP()
@@ -478,8 +592,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         cauHinh.userContentController.addUserScript(
             WKUserScript(source: jsCaiDat(), injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // Thử độ mượt (03/11): VM_TAT_VONG=1 tắt các vòng kiểm trên trang, VM_TAT_CUON=1 bỏ phần ẩn thanh cuộn
+        if ProcessInfo.processInfo.environment["VM_DO_WORKER"] == "1" {
+            cauHinh.userContentController.addUserScript(WKUserScript(source: "window.__vmDoWorker = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        if ProcessInfo.processInfo.environment["VM_TAT_VONG"] == "1" {
+            cauHinh.userContentController.addUserScript(WKUserScript(source: "window.__vmTatVong = true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         cauHinh.userContentController.addUserScript(
             WKUserScript(source: jsThongBao, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if ProcessInfo.processInfo.environment["VM_TAT_CUON"] != "1" {
+            cauHinh.userContentController.addUserScript(
+                WKUserScript(source: jsThanhCuon, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
 
         cauHinh.userContentController.add(self, name: "vmThongBao")
         // Giữ đăng nhập: theo dõi cookie để đổi cookie phiên thành cookie 1 năm
@@ -547,12 +672,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         if let so = d["soChuaDoc"] as? Int, message.webView == webView {
             NSLog("VM: số chưa đọc = %d", so)
             NSApp.dockTile.badgeLabel = so > 0 ? String(so) : nil
+            soChuaDoc = so; capNhatThanhMenu()
             return
         }
         if let id = d["dong"] as? String {
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id]); return
         }
         guard let id = d["id"] as? String else { return }
+        if let den = tatThongBaoDen, den > Date() { NSLog("VM: bỏ thông báo tin nhắn (đang tạm tắt)"); return }
         webCuaThongBao[id] = message.webView
 
         let nd = UNMutableNotificationContent()
@@ -722,6 +849,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     // Nhật ký tải trang (xem bằng: log show --last 5m --predicate 'process == "VduckMessenger"')
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Dò SharedWorker (VM_DO_SW=1): Messenger báo "WorkerHealthStatus: shared_not_exists" (03/11) – kiểm trang tạo được không
+        if ProcessInfo.processInfo.environment["VM_DO_SW"] == "1", webView == self.webView {
+            webView.callAsyncJavaScript("""
+                const kq = ['SharedWorker=' + typeof SharedWorker, 'Worker=' + typeof Worker, 'storage=' + typeof navigator.storage?.getDirectory, 'locks=' + typeof navigator.locks];
+                try {
+                  const u = URL.createObjectURL(new Blob(['onconnect = e => e.ports[0].postMessage("ok")'], { type: 'text/javascript' }));
+                  const w = new SharedWorker(u);
+                  const tl = await Promise.race([new Promise(r => { w.port.onmessage = e => r('trả lời ' + e.data); w.port.start(); }),
+                    new Promise(r => { w.onerror = e => r('lỗi ' + (e.message || e.type)); }), new Promise(r => setTimeout(() => r('hết giờ 5s'), 5000))]);
+                  kq.push('tạo SharedWorker: ' + tl);
+                } catch (e) { kq.push('tạo SharedWorker ném lỗi: ' + e.name + ' ' + e.message); }
+                return kq.join(' · ');
+                """, arguments: [:], in: nil, in: .page) { kq in NSLog("VM: DÒ SW → %@", "\((try? kq.get()) ?? "lỗi gọi")") }
+        }
+        // Đo độ mượt khi cuộn (VM_DO_MUOT=1): mở đoạn chat đầu danh sách, cuộn khung tin nhắn lên 8 giây
+        // (giống lăn chuột xem tin cũ), đo thời gian từng khung hình. Chỉ ghi số, không ghi chữ/tên.
+        if ProcessInfo.processInfo.environment["VM_DO_MUOT"] == "1", webView == self.webView {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                self?.webView.callAsyncJavaScript("""
+                    const ngu = ms => new Promise(r => setTimeout(r, ms));
+                    if (!/\\/t\\/[0-9]/.test(location.pathname)) {
+                      await ngu(3000);
+                      const a = [...document.querySelectorAll('[role="row"] a[href*="/t/"], [role="grid"] a[href*="/t/"]')][0];
+                      if (a) a.click(); else return 'không thấy dòng chat nào, đường=' + location.pathname;
+                      await ngu(6000);
+                    }
+                    let khung = null;
+                    for (let lan = 0; lan < 20 && !khung; lan++) {
+                      let cao = 0;
+                      for (const el of document.querySelectorAll('[role="main"] *')) {
+                        if (el.scrollHeight > el.clientHeight + 50 && el.clientHeight > cao && /auto|scroll/.test(getComputedStyle(el).overflowY)) { khung = el; cao = el.clientHeight; }
+                      }
+                      if (!khung) await ngu(1000);
+                    }
+                    if (!khung) return 'không thấy khung tin nhắn, đường=' + location.pathname.replace(/[0-9]+/g, 'N');
+                    const d = []; let truoc = performance.now(), het = truoc + 8000;
+                    await new Promise(xong => { const f = (t) => { d.push(t - truoc); truoc = t; khung.scrollTop -= 25; if (t < het) requestAnimationFrame(f); else xong(); }; requestAnimationFrame(f); });
+                    d.shift(); d.sort((a, b) => a - b);
+                    const p = q => d[Math.floor(d.length * q)].toFixed(1);
+                    return `khung=${d.length} (≈${(d.length / 8).toFixed(0)} hình/giây) trungVị=${p(0.5)}ms p95=${p(0.95)}ms tệNhất=${d[d.length - 1].toFixed(0)}ms giật>34ms=${d.filter(x => x > 34).length} giật>100ms=${d.filter(x => x > 100).length}`;
+                    """, arguments: [:], in: nil, in: .page) { kq in
+                    switch kq {
+                    case .success(let v): NSLog("VM: ĐO MƯỢT → %@", "\(v)")
+                    case .failure(let e): NSLog("VM: ĐO MƯỢT lỗi %@", e.localizedDescription)
+                    }
+                }
+            }
+        }
         // Chỉ ghi tên miền + đường dẫn (bỏ phần sau "?" – link cuộc gọi chứa mã tài khoản)
         let duong = (webView.url?.host ?? "?") + (webView.url?.path ?? "").replacingOccurrences(of: "[0-9]{5,}", with: "N", options: .regularExpression)
         NSLog("VM: tải xong %@ – %@", duong, webView.title ?? "")
@@ -850,6 +1025,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         }
         // Thanh bên đang để ẩn từ lần trước → ẩn lại sau mỗi lần tải trang
         if webView == self.webView, anThanhBen { apDungThanhBen(hienCuaSo: false) }
+        // Dò thanh cuộn (VM_DO_CUON=1): 8 giây/lần ghi các khung đang cuộn được – chỉ vị trí, cỡ, kiểu thanh cuộn,
+        // không ghi chữ / tên / nội dung
+        if ProcessInfo.processInfo.environment["VM_DO_CUON"] == "1", webView == self.webView {
+            Timer.scheduledTimer(withTimeInterval: 8, repeats: true) { [weak self] _ in
+                self?.chayJS("DÒ CUỘN", """
+                    (() => {
+                      const kq = [];
+                      for (const el of document.querySelectorAll('*')) {
+                        if (el.scrollHeight <= el.clientHeight + 2) continue;
+                        const cs = getComputedStyle(el);
+                        if (!/auto|scroll/.test(cs.overflowY)) continue;
+                        const r = el.getBoundingClientRect();
+                        if (r.width < 20 || r.height < 50) continue;
+                        const tr = getComputedStyle(el, '::-webkit-scrollbar-track');
+                        kq.push(`[${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}] rộngThanh=${el.offsetWidth - el.clientWidth} sbColor=${cs.scrollbarColor} sbWidth=${cs.scrollbarWidth} ẩn=${el.hasAttribute('data-vm-an-cuon')} trongMain=${!!el.closest('[role="main"]')} nềnẢnh=${cs.backgroundImage.slice(0, 30)} tag=${el.tagName} role=${el.getAttribute('role') || '-'}`);
+                      }
+                      return `đường=${location.pathname.replace(/[0-9]+/g, 'N')} cửa sổ ${innerWidth}x${innerHeight} thanhTrang=${innerWidth - document.documentElement.clientWidth} cờ=${document.documentElement.hasAttribute('data-vm-cuon')} style=${!!document.getElementById('vm-thanh-cuon')}\\n` + kq.join('\\n');
+                    })()
+                    """, hienCuaSo: false)
+            }
+        }
         // Chế độ dò (VM_DO=1): 15 giây/lần ghi tiêu đề + các dấu hiệu "chưa đọc" trên trang → để tìm cách đếm đúng
         if ProcessInfo.processInfo.environment["VM_DO"] == "1", webView == self.webView {
             webView.evaluateJavaScript("""
@@ -1139,7 +1335,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             (() => {
               const nhan = /^(Thông tin về cuộc trò chuyện|Thông tin cuộc trò chuyện|Thông tin về đoạn chat|Conversation information|Conversation info)$/i;
               const b = [...document.querySelectorAll('[aria-label]')].find(e => nhan.test(e.getAttribute('aria-label')));
-              if (b) { b.click(); return 'đã bấm: ' + b.getAttribute('aria-label'); }
+              if (b) {
+                b.click();
+                // Khung thông tin đóng/mở xong, trang tự đưa con trỏ bàn phím về 1 dòng tin → hiện viền xanh (anh báo 03/11).
+                // Đợi trang làm xong rồi đưa con trỏ về ô soạn tin (cuối chữ đang soạn); không thấy ô thì bỏ chọn.
+                setTimeout(() => {
+                  const o = document.querySelector('[role="main"] [role="textbox"][contenteditable="true"]')
+                         || document.querySelector('[role="textbox"][contenteditable="true"]');
+                  if (o) {
+                    o.focus();
+                    const r = document.createRange(); r.selectNodeContents(o); r.collapse(false);
+                    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+                  } else if (document.activeElement && document.activeElement !== document.body) {
+                    document.activeElement.blur();
+                  }
+                }, 350);
+                return 'đã bấm: ' + b.getAttribute('aria-label');
+              }
               const dau = [...document.querySelectorAll('[role="main"] [aria-label]')].map(e => e.getAttribute('aria-label')).filter(t => t.length < 40);
               return 'KHÔNG thấy nút – nhãn đầu chat: ' + JSON.stringify([...new Set(dau)].slice(0, 20));
             })()
@@ -1213,7 +1425,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     // MARK: Menu – thiếu menu Edit thì Cmd+C / Cmd+V không chạy trong WKWebView
 
-    @objc func taiLai() { webView.reload() }
+    @objc func taiLai() { NSLog("VM: Cmd+R – tải lại trang"); webView.reload() }
     @objc func taiLaiHoanToan() { webView.reloadFromOrigin() }   // bỏ qua bộ nhớ đệm
     @objc func phongTo() { webView.pageZoom += 0.1 }
     @objc func thuNho() { webView.pageZoom = max(0.5, webView.pageZoom - 0.1) }
@@ -1766,9 +1978,17 @@ extension AppDelegate {
 }
 
 // MARK: Cài đặt (⌘,) – 4 tab: Thông báo · Cuộc gọi · Tải file · Chung (anh duyệt trang xem thử 03/11, bỏ phần Cập nhật – làm sau)
-let ngayPhatHanh = "03/11/2026"
+let ngayPhatHanh = "04/11/2026"
 let tenApp = "Messenger Vdk"           // tên app (anh chốt 03/11; trước: Vduck Messenger → Messenger → Messenger AppD)
 let coGiMoi = """
+0.6.3 – 04/11/2026
+• Đổi biểu tượng app: Cài đặt → Biểu tượng (10 mẫu, mặc định logo gốc)
+• Biểu tượng trên thanh menu: số tin chưa đọc, 9 đoạn chat gần nhất, Tin nhắn mới, Tạm tắt thông báo, Gác máy khi đang gọi; chọn hiện app ở Dock / thanh menu / cả hai
+• Bấm thông báo tin nhắn không còn tải lại cả trang
+• Ẩn thanh cuộn khung chat (không còn lộ dải màu khi dùng chủ đề màu)
+• ⌘S: con trỏ tự về ô soạn tin
+• Hướng dẫn sửa lỗi dấu tiếng Việt (VietTelex, OpenKey) trong README
+
 0.6.2 – 03/11/2026
 • Sửa chữ trong Cài đặt → Thông báo (xưng «bạn»)
 • Giấy phép mới: CC BY-NC 4.0 – dùng, chia sẻ tự do, không dùng thương mại
@@ -1829,9 +2049,9 @@ extension AppDelegate {
     @objc func moGioiThieu() { moCaiDat(); (cuaSoCaiDat?.contentView?.viewWithTag(77) as? NSSegmentedControl).map { $0.selectedSegment = 3; chonTab($0) } }
     @objc func moCaiDat() {
         if let w = cuaSoCaiDat { w.makeKeyAndOrderFront(nil); NSApp.activate(); return }
-        let tab = NSSegmentedControl(labels: ["Thông báo", "Cuộc gọi", "Tải file", "Chung"], trackingMode: .selectOne,
+        let tab = NSSegmentedControl(labels: ["Thông báo", "Cuộc gọi", "Tải file", "Chung", "Biểu tượng"], trackingMode: .selectOne,
                                      target: self, action: #selector(chonTab(_:)))
-        for (i, h) in ["bell", "phone", "arrow.down.circle", "gearshape"].enumerated() {
+        for (i, h) in ["bell", "phone", "arrow.down.circle", "gearshape", "paintpalette"].enumerated() {
             tab.setImage(NSImage(systemSymbolName: h, accessibilityDescription: nil), forSegment: i)
         }
         tab.segmentStyle = .automatic; tab.selectedSegment = 0; tab.tag = 77
@@ -1850,7 +2070,7 @@ extension AppDelegate {
     @objc func chonTab(_ tab: NSSegmentedControl) {
         guard let w = cuaSoCaiDat, let goc = w.contentView else { return }
         trangCaiDat?.removeFromSuperview(); giuHanhDong.removeAll()
-        let trang = [trangThongBao, trangCuocGoi, trangTaiFile, trangChung][max(0, tab.selectedSegment)]()
+        let trang = [trangThongBao, trangCuocGoi, trangTaiFile, trangChung, trangBieuTuong][max(0, tab.selectedSegment)]()
         trang.translatesAutoresizingMaskIntoConstraints = false
         goc.addSubview(trang); trangCaiDat = trang
         NSLayoutConstraint.activate([trang.topAnchor.constraint(equalTo: tab.bottomAnchor, constant: 8),
@@ -2065,6 +2285,298 @@ extension AppDelegate {
                  chuGhi("Tắt: chỉ ghi lỗi và số đo. Bật: ghi chi tiết (dò tin, cuộc gọi) để tìm lỗi – không ghi nội dung tin nhắn hay tên người."),
                  cacNut]),
         ])
+    }
+}
+
+// MARK: Biểu tượng app (anh duyệt 10 mẫu 03/11, mặc định = logo gốc): "goc" = icon.icns; mẫu khác = Resources/logo/<id>.png
+// Đổi 2 chỗ: Dock khi app đang chạy (applicationIconImage) + biểu tượng của file .app trong Finder / Launchpad / Dock khi tắt
+// (NSWorkspace.setIcon – macOS ghi file "Icon\r" vào trong app). Cập nhật app thay cả thư mục → mất "Icon\r" → mở app tự đặt lại.
+let cacBieuTuong: [(id: String, ten: String, nhom: String)] = [
+    ("goc", "Logo gốc", "Gốc"),
+    ("but-chi", "Vẽ bút chì", "Nữ"), ("no-hong", "Nơ hồng", "Nữ"), ("gau", "Gấu ngó", "Nữ"),
+    ("thach-kinh", "Thạch kính 3D", "Nữ"), ("anh-dao", "Hoa anh đào", "Nữ"),
+    ("thien-ha", "Thiên hà", "Nam"), ("neon", "Đèn neon", "Nam"), ("8bit", "Điểm ảnh 8-bit", "Nam"),
+    ("chrome", "Kim loại chrome", "Nam"), ("den-nham", "Đen nhám", "Nam"),
+]
+
+extension AppDelegate {
+    var bieuTuongDangDung: String { UserDefaults.standard.string(forKey: "bieuTuong") ?? "goc" }
+    func anhBieuTuong(_ id: String) -> NSImage? {
+        id == "goc" ? Bundle.main.url(forResource: "icon", withExtension: "icns").flatMap { NSImage(contentsOf: $0) }
+                    : Bundle.main.url(forResource: id, withExtension: "png", subdirectory: "logo").flatMap { NSImage(contentsOf: $0) }
+    }
+    /// luonGhiFinder = false (lúc mở app): chỉ ghi lại biểu tượng Finder khi nó bị mất (vd. sau cập nhật)
+    func apDungBieuTuong(_ id: String, luonGhiFinder: Bool) {
+        let anh = id == "goc" ? nil : anhBieuTuong(id)
+        if id != "goc" && anh == nil { NSLog("VM: không tìm thấy biểu tượng %@ → dùng logo gốc", id) }
+        NSApp.applicationIconImage = anh                     // nil = trả về icon.icns
+        let app = Bundle.main.bundlePath, coIconRieng = FileManager.default.fileExists(atPath: app + "/Icon\r")
+        guard luonGhiFinder || (anh != nil) != coIconRieng else { return }
+        let ok = NSWorkspace.shared.setIcon(anh, forFile: app, options: [])
+        NSLog("VM: biểu tượng = %@ (Finder %@)", id, ok ? "đã đổi" : "KHÔNG đổi được – chỉ đổi trên Dock khi app mở")
+    }
+
+    func trangBieuTuong() -> NSView {
+        var cacNut: [(String, NSButton)] = []
+        let veVien = { (chon: String) in
+            for (id, b) in cacNut { b.layer?.borderWidth = id == chon ? 2.5 : 0 }
+        }
+        func hang(_ nhom: String) -> NSView {
+            let nhan = NSTextField(labelWithString: nhom); nhan.textColor = .secondaryLabelColor
+            nhan.translatesAutoresizingMaskIntoConstraints = false; nhan.widthAnchor.constraint(equalToConstant: 40).isActive = true
+            var ds: [NSView] = [nhan]
+            for m in cacBieuTuong where m.nhom == nhom {
+                let hd = HanhDong { [weak self] _ in
+                    guard let self, m.id != self.bieuTuongDangDung else { return }
+                    UserDefaults.standard.set(m.id, forKey: "bieuTuong")
+                    self.apDungBieuTuong(m.id, luonGhiFinder: true); veVien(m.id)
+                }
+                giuHanhDong.append(hd)
+                let b = NSButton(image: anhBieuTuong(m.id) ?? NSImage(), target: hd, action: #selector(HanhDong.chay(_:)))
+                b.isBordered = false; b.imageScaling = .scaleProportionallyUpOrDown; b.toolTip = m.ten; b.setAccessibilityLabel(m.ten)
+                b.wantsLayer = true; b.layer?.cornerRadius = 14; b.layer?.borderColor = NSColor.controlAccentColor.cgColor
+                b.translatesAutoresizingMaskIntoConstraints = false
+                b.widthAnchor.constraint(equalToConstant: 64).isActive = true; b.heightAnchor.constraint(equalToConstant: 64).isActive = true
+                cacNut.append((m.id, b)); ds.append(b)
+            }
+            let h = NSStackView(views: ds); h.spacing = 12; h.alignment = .centerY
+            h.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+            return h
+        }
+        // Hiện app ở: Dock + thanh menu / chỉ thanh menu / chỉ Dock
+        let chonO = NSPopUpButton(); chonO.addItems(withTitles: ["Dock và thanh menu", "Chỉ thanh menu", "Chỉ Dock"])
+        chonO.selectItem(at: ["ca", "menu", "dock"].firstIndex(of: hienO) ?? 0)
+        let hdO = HanhDong { [weak self] s in
+            UserDefaults.standard.set(["ca", "menu", "dock"][(s as! NSPopUpButton).indexOfSelectedItem], forKey: "hienO")
+            self?.apDungHienO()
+        }
+        giuHanhDong.append(hdO); chonO.target = hdO; chonO.action = #selector(HanhDong.chay(_:))
+        let trang = trangDoc([
+            tieuDeMuc("Biểu tượng app", "paintpalette"),
+            the([hang("Gốc"), hang("Nữ"), hang("Nam"),
+                 chuGhi("Bấm để đổi – Dock đổi ngay, Finder / Launchpad đổi theo (có khi cần vài giây). Rê chuột lên biểu tượng để xem tên. Cập nhật app vẫn giữ biểu tượng đã chọn.")]),
+            tieuDeMuc("Thanh menu", "menubar.rectangle"),
+            the([dong(NSTextField(labelWithString: "Hiện app ở"), chonO),
+                 congTac("anTenMenu", false, "Ẩn tên người trong menu (khi chia sẻ màn hình)"),
+                 chuGhi("Bấm biểu tượng trên thanh menu: mở / ẩn cửa sổ chat. Chuột phải: đoạn chat gần đây, tạm tắt thông báo, cuộc gọi đang diễn ra. «Chỉ thanh menu» = ẩn khỏi Dock.")]),
+        ])
+        veVien(bieuTuongDangDung)
+        return trang
+    }
+}
+
+// MARK: Thanh menu (anh duyệt 03/11): biểu tượng bong bóng + số chưa đọc; xanh lá khi đang gọi, nhấp nháy khi có cuộc gọi đến,
+// mờ khi đang tạm tắt thông báo. Chuột trái = mở / ẩn cửa sổ chat; chuột phải (hoặc Ctrl+bấm) = menu.
+extension AppDelegate: NSMenuDelegate {
+    var hienO: String { UserDefaults.standard.string(forKey: "hienO") ?? "ca" }      // ca / menu / dock
+    var tatThongBaoDen: Date? {                                                     // tạm tắt thông báo TIN NHẮN (cuộc gọi vẫn báo)
+        get { UserDefaults.standard.object(forKey: "tatTBDen") as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: "tatTBDen") }
+    }
+    var dangTatThongBao: Bool { (tatThongBaoDen ?? .distantPast) > Date() }
+
+    // Bong bóng Messenger 1 màu (template – macOS tự tô trắng/đen theo thanh menu), tia sét khoét rỗng; toạ độ theo logo 100×100
+    static let anhThanhMenu: NSImage = {
+        let im = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { r in
+            let s = r.width / 100, d = { (x: CGFloat, y: CGFloat) in NSPoint(x: x * s, y: y * s) }
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: NSRect(x: 15 * s, y: 13 * s, width: 70 * s, height: 66 * s)).fill()
+            let duoi = NSBezierPath(); duoi.move(to: d(24, 60)); duoi.line(to: d(24, 90)); duoi.line(to: d(46, 76)); duoi.close(); duoi.fill()
+            let set = NSBezierPath(); set.move(to: d(26, 60))
+            for p in [(45.0, 39.0), (54.0, 47.0), (74.0, 36.0), (55.0, 57.0), (46.0, 49.5)] { set.line(to: d(p.0, p.1)) }
+            set.close()
+            NSGraphicsContext.current?.compositingOperation = .clear; set.fill()
+            return true
+        }
+        im.isTemplate = true; im.accessibilityDescription = tenApp
+        return im
+    }()
+    static func cham(_ mau: NSColor?) -> NSImage {
+        NSImage(size: NSSize(width: 8, height: 8), flipped: false) { r in mau?.setFill(); if mau != nil { NSBezierPath(ovalIn: r).fill() }; return true }
+    }
+
+    func apDungHienO(dangMo: Bool = false) {
+        let che = hienO
+        if che == "dock" {
+            oThanhMenu.map { NSStatusBar.system.removeStatusItem($0) }; oThanhMenu = nil
+            nhipThanhMenu?.invalidate(); nhipThanhMenu = nil
+        } else if oThanhMenu == nil { taoThanhMenu() }
+        let chinhSach: NSApplication.ActivationPolicy = che == "menu" ? .accessory : .regular
+        if NSApp.activationPolicy() != chinhSach {
+            NSApp.setActivationPolicy(chinhSach)
+            // đổi Dock ↔ chỉ thanh menu thì macOS đẩy app ra sau → đưa lại cửa sổ đang dùng lên trước
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+                (dangMo ? self.window : self.cuaSoCaiDat ?? self.window)?.makeKeyAndOrderFront(nil)
+            }
+        }
+        NSLog("VM: hiện app ở = %@", che)
+    }
+
+    func taoThanhMenu() {
+        let o = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        o.autosaveName = "messenger-vdk"
+        oThanhMenu = o
+        guard let b = o.button else { return }
+        b.image = AppDelegate.anhThanhMenu; b.imagePosition = .imageLeading
+        b.toolTip = tenApp; b.setAccessibilityLabel(tenApp)
+        b.target = self; b.action = #selector(bamThanhMenu(_:)); b.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        let m = NSMenu(); m.delegate = self; m.autoenablesItems = false; menuThanhMenu = m
+        nhipThanhMenu = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.capNhatThanhMenu() }
+        capNhatThanhMenu()
+    }
+
+    /// 1 giây/lần: ghi giờ bắt đầu cuộc gọi, số chưa đọc, màu (gọi đến nhấp nháy / đang gọi xanh), mờ khi tạm tắt thông báo
+    func capNhatThanhMenu() {
+        let goi = cuaSoPhu.filter { laCuocGoi($0) }
+        for w in goi where batDauGoi[ObjectIdentifier(w)] == nil { batDauGoi[ObjectIdentifier(w)] = Date() }
+        let con = Set(goi.map { ObjectIdentifier($0) }); batDauGoi = batDauGoi.filter { con.contains($0.key) }
+        guard let b = oThanhMenu?.button else { return }
+        let chu = soChuaDoc > 0 ? " \(soChuaDoc)" : ""
+        if b.title != chu { b.title = chu }
+        nhay.toggle()
+        let mau: NSColor? = goiDen != nil ? (nhay ? .systemGreen : nil) : (goi.isEmpty ? nil : .systemGreen)
+        if b.contentTintColor != mau { b.contentTintColor = mau }
+        let mo: CGFloat = dangTatThongBao ? 0.5 : 1
+        if b.alphaValue != mo { b.alphaValue = mo }
+    }
+
+    @objc func bamThanhMenu(_ b: NSStatusBarButton) {
+        let ev = NSApp.currentEvent
+        if ev?.type == .rightMouseUp || ev?.modifierFlags.contains(.control) == true { moMenuThanhMenu() } else { doiCuaSoChinh() }
+    }
+    func moMenuThanhMenu() {
+        guard let o = oThanhMenu, let m = menuThanhMenu else { return }
+        o.menu = m; o.button?.performClick(nil); o.menu = nil
+    }
+    func hienCuaSoChinh() {
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
+    }
+    func doiCuaSoChinh() {
+        if NSApp.isActive, window.isVisible, window.isKeyWindow, !window.isMiniaturized {
+            NSApp.hide(nil); NSLog("VM: thanh menu → ẩn cửa sổ")
+        } else { hienCuaSoChinh(); NSLog("VM: thanh menu → mở cửa sổ") }
+    }
+
+    // Mở menu: dựng ngay bằng danh sách cũ, rồi hỏi trang danh sách mới → dựng lại (menu đang mở vẫn cập nhật)
+    func menuNeedsUpdate(_ m: NSMenu) {
+        guard m === menuThanhMenu else { return }
+        dungMenu(m)
+        webView.evaluateJavaScript("window.__vmDsChat ? window.__vmDsChat() : []") { [weak self] kq, _ in
+            guard let self, let ds = kq as? [[String: Any]] else { return }
+            self.dsChatMenu = ds.compactMap { d in (d["href"] as? String).map { (d["ten"] as? String ?? "Đoạn chat", $0, d["chua"] as? Bool ?? false) } }
+            self.dungMenu(m)
+        }
+    }
+    func dungMenu(_ m: NSMenu) {
+        m.removeAllItems()
+        @discardableResult func them(_ t: String, _ a: Selector?) -> NSMenuItem {
+            let i = m.addItem(withTitle: t, action: a, keyEquivalent: ""); i.target = self; i.isEnabled = a != nil; return i
+        }
+        // Đang gọi
+        if let w = cuaSoPhu.first(where: { laCuocGoi($0) }) {
+            let giay = Int(Date().timeIntervalSince(batDauGoi[ObjectIdentifier(w)] ?? Date()))
+            them(String(format: "📞 Đang gọi %02d:%02d", giay / 60, giay % 60), nil)
+            them("Mở cuộc gọi", #selector(moCuocGoiTuMenu))
+            them("Gác máy", #selector(gacMayTuMenu))
+            m.addItem(.separator())
+        }
+        // Đoạn chat gần đây (chấm xanh + chữ đậm = chưa đọc)
+        them(dsChatMenu.isEmpty ? "Đoạn chat gần đây – đang tải…" : "Đoạn chat gần đây", nil)
+        let anTen = caiDat("anTenMenu", false)
+        for (i, c) in dsChatMenu.enumerated() {
+            let it = them(anTen ? "Đoạn chat \(i + 1)" : c.ten, #selector(moChatTuMenu(_:)))
+            it.representedObject = c.href
+            it.image = AppDelegate.cham(c.chua ? .systemBlue : nil)
+            if c.chua { it.attributedTitle = NSAttributedString(string: it.title, attributes: [.font: NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)]) }
+        }
+        m.addItem(.separator())
+        them("Tin nhắn mới", #selector(tinNhanMoiTuMenu))
+        them("Tìm tin nhắn", #selector(timTuMenu))
+        m.addItem(.separator())
+        // Tạm tắt thông báo tin nhắn
+        if dangTatThongBao, let den = tatThongBaoDen {
+            let f = DateFormatter(); f.dateFormat = Calendar.current.isDateInToday(den) ? "HH:mm" : "HH:mm dd/MM"
+            them(den == .distantFuture ? "🔕 Đã tắt thông báo tin nhắn" : "🔕 Tắt thông báo tin nhắn đến \(f.string(from: den))", nil)
+            them("Bật lại thông báo", #selector(batLaiThongBao))
+        } else {
+            let sub = NSMenu()
+            for (t, k) in [("1 giờ", 1), ("Đến 8 giờ sáng", 2), ("Đến khi bật lại", 3)] {
+                let i = sub.addItem(withTitle: t, action: #selector(tatThongBaoTuMenu(_:)), keyEquivalent: ""); i.target = self; i.tag = k
+            }
+            let i = them("Tạm tắt thông báo tin nhắn", nil); i.isEnabled = true; i.submenu = sub
+        }
+        m.addItem(.separator())
+        them("Cài đặt…", #selector(moCaiDatTuMenu))
+        them("Kiểm tra cập nhật…", #selector(capNhatTuMenu))
+        let thoat = them("Thoát \(tenApp)", #selector(NSApplication.terminate(_:))); thoat.target = NSApp
+    }
+
+    @objc func moChatTuMenu(_ i: NSMenuItem) {
+        guard let href = i.representedObject as? String,
+              let h = (try? JSONEncoder().encode(href)).flatMap({ String(data: $0, encoding: .utf8) }) else { return }
+        hienCuaSoChinh()
+        // giống bấm thông báo: tìm dòng chat đang hiện theo href; không thấy → chuyển trang mềm (không tải lại)
+        chayJS("Thanh menu mở chat", """
+            (() => { const h = \(h); const a = document.querySelector('a[href="' + CSS.escape(h) + '"]');
+              if (a) { a.click(); return 'mở chat'; }
+              history.pushState({}, '', h); dispatchEvent(new PopStateEvent('popstate', { state: {} })); return 'chuyển trang mềm'; })()
+            """)
+    }
+    @objc func tinNhanMoiTuMenu() { hienCuaSoChinh(); tinNhanMoi() }
+    @objc func timTuMenu() { hienCuaSoChinh(); timTinNhan() }
+    @objc func moCuocGoiTuMenu() {
+        guard let w = cuaSoPhu.first(where: { laCuocGoi($0) }) else { return }
+        if pip[ObjectIdentifier(w)]?.dangPiP == true { raPiP(w, giuTruoc: true) }
+        NSApp.activate(ignoringOtherApps: true); w.makeKeyAndOrderFront(nil)
+    }
+    @objc func gacMayTuMenu() {
+        guard let w = cuaSoPhu.first(where: { laCuocGoi($0) }) else { return }
+        NSLog("VM: thanh menu → gác máy (đóng cửa sổ gọi)"); w.performClose(nil)
+    }
+    @objc func tatThongBaoTuMenu(_ i: NSMenuItem) {
+        switch i.tag {
+        case 1: tatThongBaoDen = Date().addingTimeInterval(3600)
+        case 2: tatThongBaoDen = Calendar.current.nextDate(after: Date(), matching: DateComponents(hour: 8, minute: 0), matchingPolicy: .nextTime)
+        default: tatThongBaoDen = .distantFuture
+        }
+        NSLog("VM: tạm tắt thông báo tin nhắn đến %@", tatThongBaoDen == .distantFuture ? "khi bật lại" : "\(tatThongBaoDen!)")
+        capNhatThanhMenu()
+    }
+    @objc func batLaiThongBao() { tatThongBaoDen = nil; NSLog("VM: bật lại thông báo tin nhắn"); capNhatThanhMenu() }
+    @objc func moCaiDatTuMenu() { NSApp.activate(ignoringOtherApps: true); moCaiDat() }
+    @objc func capNhatTuMenu() { NSApp.activate(ignoringOtherApps: true); kiemTraCapNhat(imLang: false) }
+
+    // Chạy thử VM_THU_MENU=1 (+VM_CHUP_CD=<thư mục>): dựng menu, ghi cấu trúc (tên chat che thành «…»), thử tạm tắt / bật lại,
+    // thử đổi chỉ thanh menu ↔ cả hai, chụp biểu tượng. Không bấm mở chat (mở = đánh dấu đã đọc).
+    func thuThanhMenu() {
+        guard let m = menuThanhMenu else { NSLog("VM: THỬ MENU – không có biểu tượng thanh menu (hienO=%@)", hienO); return }
+        menuNeedsUpdate(m)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            let ten = Set(self.dsChatMenu.map(\.ten))
+            NSLog("VM: THỬ MENU chat=%d chưaĐọc=%d nút='%@' | %@", self.dsChatMenu.count, self.dsChatMenu.filter(\.chua).count,
+                  self.oThanhMenu?.button?.title ?? "-",
+                  m.items.map { $0.isSeparatorItem ? "—" : (ten.contains($0.title) ? "…" : $0.title) + ($0.submenu != nil ? "▸" : "") }.joined(separator: " | "))
+            self.tatThongBaoTuMenu({ let i = NSMenuItem(); i.tag = 2; return i }())
+            self.dungMenu(m)
+            NSLog("VM: THỬ MENU tạm tắt → %@, mờ=%.2f; thông báo bị chặn=%@", m.items.first { $0.title.hasPrefix("🔕") }?.title ?? "KHÔNG THẤY",
+                  self.oThanhMenu?.button?.alphaValue ?? -1, self.dangTatThongBao ? "có" : "không")
+            self.batLaiThongBao()
+            NSLog("VM: THỬ MENU bật lại → đang tắt=%@", self.dangTatThongBao ? "có" : "không")
+            if let tm = ProcessInfo.processInfo.environment["VM_CHUP_CD"], let b = self.oThanhMenu?.button {
+                let rep = b.bitmapImageRepForCachingDisplay(in: b.bounds)!; b.cacheDisplay(in: b.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: tm).appendingPathComponent("thanh-menu.png"))
+            }
+            UserDefaults.standard.set("menu", forKey: "hienO"); self.apDungHienO()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                NSLog("VM: THỬ MENU chỉ thanh menu → Dock=%@ biểuTượng=%@", NSApp.activationPolicy() == .regular ? "CÓ" : "ẩn", self.oThanhMenu != nil ? "có" : "KHÔNG")
+                UserDefaults.standard.set("ca", forKey: "hienO"); self.apDungHienO()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NSLog("VM: THỬ MENU cả hai → Dock=%@ biểuTượng=%@", NSApp.activationPolicy() == .regular ? "có" : "ẨN", self.oThanhMenu != nil ? "có" : "KHÔNG")
+                }
+            }
+        }
     }
 }
 

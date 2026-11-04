@@ -27,7 +27,16 @@ Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
 
 👉 **Hướng dẫn chi tiết từng trường hợp (có ảnh): [HUONG-DAN-CAI.md](HUONG-DAN-CAI.md)** – file này cũng có sẵn trong DMG («Hướng dẫn mở lần đầu»).
 
-Bộ gõ tiếng Việt: bộ gõ Apple chạy ngay. VietTelex: thêm app (bundle id `com.vduck.messenger`) vào bảng cơ chế gõ → **Gõ trực tiếp**.
+### Gõ tiếng Việt bị lỗi dấu (lặp dấu, mất chữ)?
+- **Bộ gõ Apple** (Telex/VNI): dùng được ngay, không cần chỉnh.
+- **VietTelex**:
+  1. Cập nhật VietTelex lên bản mới nhất.
+  2. Mở Cài đặt VietTelex → mục **Cách gõ trực tiếp** → tích 2 ô:
+     - ☑ *Dùng cách gõ an toàn cho ứng dụng chưa nhận diện*
+     - ☑ *Giữ VietTelex khi macOS tự đổi bộ gõ*
+  3. Vẫn lỗi → Cài đặt → tắt «Ẩn tính năng nâng cao» → tab **Bảng cơ chế gõ** → Thêm app → dán `com.vduck.messenger` → chọn **Gõ trực tiếp**.
+- **OpenKey**: mở cài đặt OpenKey → bật **Sửa lỗi gợi ý trình duyệt** (mặc định đã bật).
+- **Bộ gõ khác** (EVKey, GoTiengViet…) mà vẫn lỗi: chụp màn hình chữ bị sai, gửi cho mình.
 
 ## Tự build
 ```bash

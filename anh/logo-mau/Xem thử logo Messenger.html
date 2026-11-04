@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logo Messenger phá cách – Messenger Vdk</title>
+<style>
+  :root { --nen:#f4f4f6; --the:#fff; --chu:#1d1d1f; --phu:#6e6e73; --vien:#e3e3e8; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 48px; background:var(--nen); color:var(--chu);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+  h2 { font-size:19px; margin:28px 0 12px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  .ghichu { color:var(--phu); margin:0 0 20px; max-width:900px; }
+  .luoi { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; max-width:1400px; }
+  .the { background:var(--the); border:1px solid var(--vien); border-radius:16px; padding:16px; }
+  .the.hientai { border:2px dashed #b0b0b8; }
+  .to { display:flex; justify-content:center; padding:8px 0 4px; }
+  .to svg { width:150px; height:150px; filter:drop-shadow(0 6px 10px rgba(0,0,0,.18)); }
+  .ten { font-weight:600; font-size:16px; margin:8px 0 2px; }
+  .ten b { display:inline-block; min-width:28px; color:#7b3fe4; }
+  .mota { color:var(--phu); font-size:13.5px; margin:0 0 10px; min-height:40px; }
+  .dock { display:flex; gap:8px; }
+  .dock div { flex:1; border-radius:12px; padding:8px; display:flex; align-items:flex-end; justify-content:center; gap:10px; }
+  .dock .sang { background:linear-gradient(#dfe6f2,#c9d3e6); }
+  .dock .toi { background:linear-gradient(#2b2d36,#1a1b20); }
+  .dock svg.d64 { width:52px; height:52px; } .dock svg.d32 { width:26px; height:26px; }
+  .nhan { font-size:11px; color:var(--phu); text-align:center; margin-top:4px; }
+</style>
+</head>
+<body>
+<h1>Messenger Vdk – 10 logo Messenger phá cách (5 nữ · 5 nam)</h1>
+<p class="ghichu">Giữ hình bong bóng + tia sét của Messenger, đổi phong cách. Ý tưởng lấy từ các kiểu đang thịnh trên Pinterest (doodle, nơ Hello Kitty, gấu, thạch kính, thiên hà, neon…) – em <b>tự vẽ lại</b>, không chép ảnh của người đăng. Dock ở dưới mỗi thẻ là <b>mô phỏng</b> cỡ thật 52 px / 26 px.</p>
+<div class="luoi" id="luoi"></div>
+
+<script>
+// Bong bóng Messenger (đuôi trái dưới) + tia sét – vẽ lại theo tỉ lệ logo gốc
+const BB = 'M50 18C32.4 18 19 30.9 19 48.3c0 9.1 3.7 17 9.8 22.4V82l10.7-5.9c3.3.9 6.8 1.4 10.5 1.4 17.6 0 31-12.9 31-30.3S67.6 18 50 18z';
+const SET = 'M30.5 57.6L45.6 41.6l7.6 5.9 14.3-7.9-15.1 16-7.6-5.9z';
+const NEN = (fill) => `<rect x="8" y="8" width="84" height="84" rx="19" fill="${fill}"/>`;
+const SAO4 = (x, y, r, mau='#fff') => `<path d="M${x} ${y-r}Q${x} ${y} ${x+r} ${y}Q${x} ${y} ${x} ${y+r}Q${x} ${y} ${x-r} ${y}Q${x} ${y} ${x} ${y-r}z" fill="${mau}"/>`;
+const HOA = (x, y, r, mau) => [0,72,144,216,288].map(g => `<ellipse cx="${x}" cy="${y-r*.6}" rx="${r*.42}" ry="${r*.62}" fill="${mau}" transform="rotate(${g} ${x} ${y})"/>`).join('') + `<circle cx="${x}" cy="${y}" r="${r*.22}" fill="#ffe08a"/>`;
+const TIM = (x, y, s, mau) => `<path d="M${x} ${y+s*.9}C${x-s*1.4} ${y} ${x-s*.8} ${y-s*.9} ${x} ${y-s*.25}C${x+s*.8} ${y-s*.9} ${x+s*1.4} ${y} ${x} ${y+s*.9}z" fill="${mau}"/>`;
+
+const MAU = [
+  { ten:'Đang dùng', mota:'Logo Messenger gốc (lấy từ app Stefan).', hientai:true, ve:(i)=>`
+    <defs><radialGradient id="g${i}" cx="20%" cy="100%" r="110%"><stop offset="0" stop-color="#0099ff"/><stop offset=".6" stop-color="#a033ff"/><stop offset=".9" stop-color="#ff5280"/><stop offset="1" stop-color="#ff7061"/></radialGradient></defs>
+    <path d="${BB}" fill="url(#g${i})"/><path d="${SET}" fill="#fff"/>` },
+
+  { nhom:'nu', ten:'Vẽ bút chì (doodle)', mota:'Bong bóng màu Messenger tô nét chì xiên như vẽ tay, nền giấy kem.', ve:(i)=>`
+    <defs><linearGradient id="g${i}" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#4f8dff"/><stop offset=".5" stop-color="#a768ff"/><stop offset="1" stop-color="#ff7a8a"/></linearGradient>
+      <pattern id="p${i}" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(28)"><line x1="0" y1="0" x2="0" y2="4" stroke="#fff" stroke-width="1.1" stroke-opacity=".45"/></pattern>
+      <clipPath id="c${i}"><path d="${BB}"/></clipPath></defs>
+    ${NEN('#f6efe2')}
+    <path d="${BB}" fill="url(#g${i})"/><rect x="0" y="0" width="100" height="100" fill="url(#p${i})" clip-path="url(#c${i})"/>
+    <path d="${BB}" fill="none" stroke="#5a4fcf" stroke-width="1" stroke-opacity=".5" transform="translate(.8 .6)"/>
+    <path d="${SET}" fill="#fff" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>` },
+
+  { nhom:'nu', ten:'Nơ hồng', mota:'Bong bóng trắng đeo nơ hồng kiểu Hello Kitty, tia sét hồng, nền hồng phấn.', ve:(i)=>`
+    ${NEN('#f4b8cf')}<path d="${BB}" fill="#fff"/><path d="${SET}" fill="#f08bb0"/>
+    <g transform="rotate(18 70 25)"><ellipse cx="62" cy="25" rx="8.5" ry="6.5" fill="#f08bb0" stroke="#d9608f" stroke-width="1.2"/><ellipse cx="78" cy="25" rx="8.5" ry="6.5" fill="#f08bb0" stroke="#d9608f" stroke-width="1.2"/>
+    <ellipse cx="62" cy="25" rx="3.6" ry="2.6" fill="#f9c6da"/><ellipse cx="78" cy="25" rx="3.6" ry="2.6" fill="#f9c6da"/><circle cx="70" cy="25" r="4" fill="#e7709e" stroke="#d9608f" stroke-width="1.2"/></g>` },
+
+  { nhom:'nu', ten:'Gấu ngó', mota:'Chú gấu nhỏ ngồi trên mép bong bóng hồng, có trái tim – kiểu «cute» Pinterest.', ve:(i)=>`
+    ${NEN('#fbf3ea')}<path d="${BB}" fill="#f5a3b5"/><path d="${SET}" fill="#fff"/>
+    <g transform="translate(29 23)"><circle cx="-6" cy="-6" r="3.6" fill="#e8c9a6"/><circle cx="6" cy="-6" r="3.6" fill="#e8c9a6"/><circle cx="-6" cy="-6" r="1.6" fill="#d9a77c"/><circle cx="6" cy="-6" r="1.6" fill="#d9a77c"/>
+      <ellipse cx="0" cy="0" rx="9.5" ry="8.5" fill="#f2dcc2"/><circle cx="-3.4" cy="-.5" r="1.1" fill="#3b2b22"/><circle cx="3.4" cy="-.5" r="1.1" fill="#3b2b22"/>
+      <ellipse cx="0" cy="2.6" rx="2.6" ry="1.8" fill="#fff"/><circle cx="0" cy="2" r=".9" fill="#3b2b22"/><circle cx="-6" cy="2.6" r="1.6" fill="#f7a9b8" opacity=".8"/><circle cx="6" cy="2.6" r="1.6" fill="#f7a9b8" opacity=".8"/></g>
+    ${TIM(76, 76, 5, '#f26d8f')}` },
+
+  { nhom:'nu', ten:'Thạch kính 3D', mota:'Bong bóng hồng bóng loáng như thạch / kính, có vệt sáng – kiểu iOS 26.', ve:(i)=>`
+    <defs><linearGradient id="g${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffb3c4"/><stop offset="1" stop-color="#ef5f82"/></linearGradient>
+      <linearGradient id="n${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0f4"/><stop offset="1" stop-color="#ffc9d6"/></linearGradient>
+      <linearGradient id="h${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    ${NEN(`url(#n${i})`)}<rect x="9" y="9" width="82" height="82" rx="18" fill="none" stroke="#fff" stroke-width="1.5" stroke-opacity=".9"/>
+    <path d="${BB}" fill="url(#g${i})"/><path d="${BB}" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.2"/>
+    <ellipse cx="43" cy="29" rx="18" ry="7.5" fill="url(#h${i})" transform="rotate(-14 43 29)"/>
+    <path d="${SET}" fill="#fff" transform="translate(0 1.2)" opacity=".35"/><path d="${SET}" fill="#fff"/>` },
+
+  { nhom:'nam', ten:'Thiên hà', mota:'Nền đêm tím có sao + trăng khuyết, bong bóng trong mờ, tia sét phát sáng.', ve:(i)=>`
+    <defs><radialGradient id="n${i}" cx="30%" cy="20%" r="100%"><stop offset="0" stop-color="#5a3fb0"/><stop offset="1" stop-color="#0e0b2e"/></radialGradient>
+      <linearGradient id="g${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b9a6ff" stop-opacity=".55"/><stop offset="1" stop-color="#6fd0ff" stop-opacity=".35"/></linearGradient>
+      <filter id="f${i}"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    ${NEN(`url(#n${i})`)}
+    ${[[20,20,.9],[33,14,.6],[80,62,.8],[86,40,.5],[15,62,.6],[66,86,.7],[24,84,.5]].map(([x,y,r])=>`<circle cx="${x}" cy="${y}" r="${r}" fill="#fff"/>`).join('')}
+    ${SAO4(84, 84, 3)}${SAO4(16, 40, 2.2)}
+    <path d="M76 13a8 8 0 1 0 8 11.5 6.5 6.5 0 1 1-8-11.5z" fill="#ffe7a3"/>
+    <path d="${BB}" fill="url(#g${i})" stroke="#d8ccff" stroke-width="1.3"/>
+    <path d="${SET}" fill="#fff" filter="url(#f${i})"/>` },
+
+  { nhom:'nam', ten:'Đèn neon', mota:'Nền đen, bong bóng viền neon hồng, tia sét neon xanh – nổi bật trên Dock tối.', ve:(i)=>`
+    <defs><filter id="f${i}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    ${NEN('#120f1c')}
+    <path d="${BB}" fill="none" stroke="#ff4fd8" stroke-width="3.2" stroke-linejoin="round" filter="url(#f${i})"/>
+    <path d="${SET}" fill="none" stroke="#4ff0ff" stroke-width="3" stroke-linejoin="round" filter="url(#f${i})"/>` },
+
+  { nhom:'nu', ten:'Hoa anh đào', mota:'Bong bóng tím oải hương, chùm hoa anh đào ở góc – nhẹ nhàng, mùa xuân.', ve:(i)=>`
+    ${NEN('#e4dafa')}<path d="${BB}" fill="#b49cf2"/><path d="${SET}" fill="#fff"/>
+    ${HOA(74, 72, 11, '#ffb6d0')}${HOA(60, 82, 7.5, '#ffc9dc')}${HOA(84, 56, 6, '#ffd3e3')}
+    ${HOA(24, 22, 6, '#ffc9dc')}` },
+
+  { nhom:'nam', ten:'Điểm ảnh 8-bit', mota:'Logo Messenger dựng bằng ô vuông kiểu game cổ điển, màu chuyển xanh → tím → hồng.', pixel:true, ve:(i)=>`
+    ${NEN('#1b1c3a')}<g>${PIXEL}</g>` },
+
+  { nhom:'nam', ten:'Kim loại chrome', mota:'Bong bóng thép bóng như vỏ máy, tia sét xanh điện – cứng cáp, công nghệ.', ve:(i)=>`
+    <defs><linearGradient id="n${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3f4a"/><stop offset="1" stop-color="#16181d"/></linearGradient>
+      <linearGradient id="g${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f4f6f9"/><stop offset=".45" stop-color="#9aa3b0"/><stop offset=".55" stop-color="#6b7480"/><stop offset="1" stop-color="#d5dae1"/></linearGradient>
+      <linearGradient id="s${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fd0ff"/><stop offset="1" stop-color="#1366ff"/></linearGradient></defs>
+    ${NEN(`url(#n${i})`)}
+    <path d="${BB}" fill="url(#g${i})" stroke="#2a2e36" stroke-width="1.2"/>
+    <path d="${SET}" fill="#0b2a55" transform="translate(.6 1)"/><path d="${SET}" fill="url(#s${i})"/>` },
+
+  { nhom:'nam', ten:'Đen nhám', mota:'Nền đen nhám, bong bóng than chì, tia sét màu Messenger – tối giản, lịch lãm.', ve:(i)=>`
+    <defs><linearGradient id="s${i}" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#0099ff"/><stop offset=".6" stop-color="#a033ff"/><stop offset="1" stop-color="#ff5280"/></linearGradient></defs>
+    ${NEN('#0d0d0f')}<path d="${BB}" fill="#26272c" stroke="#3a3b42" stroke-width="1"/>
+    <path d="${SET}" fill="url(#s${i})"/>` },
+];
+
+// Điểm ảnh: lấy mẫu hình bong bóng + tia sét bằng canvas, mỗi ô 4.5 đơn vị
+const PIXEL = (() => {
+  const ctx = document.createElement('canvas').getContext('2d');
+  const bb = new Path2D(BB), st = new Path2D(SET); const o = 4.5, out = [];
+  ctx.lineWidth = 4.5; ctx.lineJoin = 'round';   // nới tia sét để ô vuông vẫn ra hình
+  for (let y = 14; y < 86; y += o) for (let x = 14; x < 86; x += o) {
+    const cx = x + o/2, cy = y + o/2;
+    if (!ctx.isPointInPath(bb, cx, cy)) continue;
+    const t = (cx - 14 + (86 - cy)) / 144;  // 0 = trái dưới, 1 = phải trên
+    const mau = (ctx.isPointInPath(st, cx, cy) || ctx.isPointInStroke(st, cx, cy)) ? '#ffffff' : `hsl(${215 + t*125}, 95%, ${58 + t*6}%)`;
+    out.push(`<rect x="${x+.25}" y="${y+.25}" width="${o-.5}" height="${o-.5}" fill="${mau}"/>`);
+  }
+  return out.join('');
+})();
+
+const svg = (m, i, lop='') => `<svg class="${lop}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">${m.ve(i)}</svg>`;
+let n = 0;
+const the = (m, so) => {
+  const id = () => `${so}_${n++}`;
+  return `<div class="the ${m.hientai ? 'hientai' : ''}">
+    <div class="to">${svg(m, id())}</div>
+    <div class="ten"><b>${m.hientai ? '–' : so}</b>${m.ten}</div>
+    <p class="mota">${m.mota}</p>
+    <div class="dock"><div class="sang">${svg(m, id(), 'd64')}${svg(m, id(), 'd32')}</div><div class="toi">${svg(m, id(), 'd64')}${svg(m, id(), 'd32')}</div></div>
+    <div class="nhan">Dock sáng · Dock tối (mô phỏng)</div>
+  </div>`;
+};
+const xep = [MAU[0], ...MAU.filter(m => m.nhom === 'nu'), ...MAU.filter(m => m.nhom === 'nam')];
+const khoi = (tieu, ds, bd) => `<h2>${tieu}</h2><div class="luoi">${ds.map((m, k) => the(m, m.hientai ? 0 : bd + k)).join('')}</div>`;
+document.getElementById('luoi').outerHTML =
+  khoi('Đang dùng', [xep[0]], 0) + khoi('5 mẫu cho nữ', xep.slice(1, 6), 1) + khoi('5 mẫu cho nam', xep.slice(6), 6);
+</script>
+</body>
+</html>
