@@ -13,6 +13,7 @@ App Messenger gọn nhẹ cho macOS (chip Apple), viết bằng Swift + WKWebVie
 - **Cài đặt (⌘,)**: thông báo, cuộc gọi, tải file, mở cùng máy, nhật ký gỡ lỗi.
 - **Cập nhật trong app**: Cài đặt → Chung → *Kiểm tra cập nhật* – bản mới được kiểm chữ ký số (Ed25519) rồi tự cài. App không tự hỏi, chỉ kết nối GitHub khi bạn bấm.
 - **Đăng xuất và xoá dữ liệu** (Cài đặt → Chung) cho máy dùng chung.
+- **Gói chẩn đoán** (Trợ giúp → Tạo gói chẩn đoán…) để báo lỗi – không chứa mật khẩu hay tin nhắn.
 - Giữ đăng nhập, chỉ chạy 1 bản, giao diện tiếng Việt.
 
 ## Cài đặt
@@ -37,6 +38,13 @@ Yêu cầu: macOS 14 trở lên, chip Apple (M1/M2/M3…).
   3. Vẫn lỗi → Cài đặt → tắt «Ẩn tính năng nâng cao» → tab **Bảng cơ chế gõ** → Thêm app → dán `com.vduck.messenger` → chọn **Gõ trực tiếp**.
 - **OpenKey**: mở cài đặt OpenKey → bật **Sửa lỗi gợi ý trình duyệt** (mặc định đã bật).
 - **Bộ gõ khác** (EVKey, GoTiengViet…) mà vẫn lỗi: chụp màn hình chữ bị sai, gửi cho mình.
+
+### Gặp lỗi khác (không đăng nhập được, trang không tải…)?
+1. Làm lại thao tác bị lỗi 1 lần.
+2. Menu **Trợ giúp → Tạo gói chẩn đoán…** (hoặc Cài đặt → Chung → *Chẩn đoán*) → lưu file `.zip`.
+3. Gửi file đó cho mình. Trong gói chỉ có đường đi của trang + thông tin máy (macOS, bản app), **không có** mật khẩu, email, cookie hay nội dung tin nhắn.
+
+Người hỗ trợ đọc gói bằng: `python3 chan-doan/doc-nhat-ky.py "<file zip>"` – in dòng thời gian lúc đăng nhập và đánh dấu ⚠️ chỗ nghi lỗi.
 
 ## Tự build
 ```bash

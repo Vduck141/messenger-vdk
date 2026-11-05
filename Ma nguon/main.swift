@@ -45,6 +45,127 @@ func laTrongApp(_ url: URL) -> Bool {
     return tenMienTrongApp.contains { host == $0 || host.hasSuffix("." + $0) }
 }
 
+// MARK: Nhật ký chẩn đoán (0.6.6 – 05/11/2026)
+// Người dùng báo: nhập tài khoản + mật khẩu, bấm Đăng nhập → văng về trang đăng nhập (video: trang «kiểm tra bảo mật»
+// Arkose Labs quay vòng rồi về lại). Nhật ký 0.6.3 thiếu: link bị app chặn / đẩy ra trình duyệt, khung con (iframe),
+// mã server trả về, thông tin máy → không biết lỗi ở app hay ở Facebook.
+// Ghi CHI TIẾT khi chưa vào màn chat (trang đăng nhập / kiểm tra – chưa có tin nhắn riêng tư); vào chat rồi chỉ ghi việc
+// quan trọng (đẩy link ra trình duyệt, lỗi server ≥400, cookie đăng nhập c_user/xs mất / có lại).
+// KHÔNG ghi: ô nhập (email, mật khẩu), giá trị cookie, nội dung tin nhắn, phần sau «?» của link (chứa mã phiên).
+// Dòng nhật ký có «VM: CĐ» – đọc bằng `python3 chan-doan/doc-nhat-ky.py <file zip / log>`.
+let duongBiet: Set<String> = ["login", "login.php", "checkpoint", "two_step_verification", "two_factor", "auth_platform",
+    "recover", "t", "e2ee", "groupcall", "stories", "reel", "reels", "watch", "share", "videos", "messages", "settings",
+    "privacy", "policies", "policy", "help", "ajax", "dialog", "cookie", "consent", "security", "arkose", "captcha",
+    "authentication", "async", "static_resources", "webworker", "features", "api", "sso", "oauth", "accounts",
+    "notifications", "bz", "unsupportedbrowser", "legal", "terms", "confirm", "confirmemail.php", "device-based",
+    "logout.php", "home.php", "x", "r", "v", "a", "intern", "gaming", "marketplace", "groups", "pages", "events"]
+
+// Link → «tên miền/đường dẫn» an toàn để ghi: bỏ «?…» và «#…», số dài → N, mã dài → <mã>,
+// đoạn đầu facebook.com / messenger.com lạ (thường là tên trang cá nhân) → <trang>
+func anDuong(_ u: URL?) -> String {
+    guard let u else { return "?" }
+    guard let s = u.scheme, s == "http" || s == "https" else { return (u.scheme ?? "?") + ":" }
+    let host = u.host ?? "?"
+    let fb = host.hasSuffix("facebook.com") || host.hasSuffix("messenger.com")
+    let doan = u.path.split(separator: "/").prefix(5).enumerated().map { (i, p) -> String in
+        let x = String(p)
+        if x.range(of: "^[0-9]{3,}$", options: .regularExpression) != nil { return "N" }
+        if x.count >= 16 && x.range(of: "[0-9]", options: .regularExpression) != nil { return "<mã>" }
+        if i == 0 && fb && !duongBiet.contains(x.lowercased()) && !x.contains(".") { return "<trang>" }
+        return String(x.replacingOccurrences(of: "[0-9]{5,}", with: "N", options: .regularExpression).prefix(40))
+    }
+    return host + "/" + doan.joined(separator: "/")
+}
+
+// Chèn vào MỌI khung (cả khung con – ô kiểm tra bảo mật Arkose nằm trong khung con). Chỉ NGHE / ĐỌC, không sửa hàm nào
+// của trang (bộ chống bot có thể coi hàm bị sửa là dấu hiệu gian lận). Mỗi lần tải khung ghi tối đa 150 dòng.
+let jsChanDoan = #"""
+(function () {
+  if (window.__vmCD) return; window.__vmCD = true;
+  const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.vmThongBao;
+  if (!h) return;
+  const gui = (d) => { try { h.postMessage(d); } catch (e) {} };
+  const BIET = new Set(\#(String(data: try! JSONSerialization.data(withJSONObject: duongBiet.sorted()), encoding: .utf8)!));
+  // Che dữ liệu riêng: email, số điện thoại, số dài
+  const che = (s) => String(s == null ? '' : s)
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '<email>')
+    .replace(/\+?\d[\d\s.-]{7,}\d/g, '<số>')
+    .replace(/\d{4,}/g, 'N').slice(0, 200);
+  const an = (u) => {
+    try {
+      const x = new URL(u, location.href);
+      if (!/^https?:$/.test(x.protocol)) return x.protocol;
+      const fb = /(^|\.)(facebook|messenger)\.com$/.test(x.hostname);
+      const p = x.pathname.split('/').filter(Boolean).slice(0, 5).map((s, i) => {
+        if (/^\d{3,}$/.test(s)) return 'N';
+        if (s.length >= 16 && /\d/.test(s)) return '<mã>';
+        if (i === 0 && fb && !BIET.has(s.toLowerCase()) && s.indexOf('.') < 0) return '<trang>';
+        return s.replace(/\d{5,}/g, 'N').slice(0, 40);
+      });
+      return x.host + '/' + p.join('/');
+    } catch (e) { return '?'; }
+  };
+  const laCon = window !== window.top;
+  const noi = laCon ? 'KHUNG CON ' + location.host + ': ' : 'TRANG: ';
+  let dem = 0;
+  const g = (s) => { if (dem++ < 150) gui({ chanDoan: noi + s }); };
+  const laTrangDN = () => /^\/(login|checkpoint|two_step|two_factor|auth_platform|recover|confirm|device-based|security|arkose|captcha|authentication)/i.test(location.pathname)
+    || !!document.querySelector('input[type=password]');
+  // Lỗi tải tài nguyên (ảnh, script, khung…) / lỗi JS trong khung con / trang tự chặn tài nguyên (CSP)
+  addEventListener('error', (e) => {
+    const t = e.target;
+    if (t && t !== window && (t.src || t.href)) g('LỖI TẢI ' + (t.tagName || '') + ' ' + an(t.src || t.href));
+    else if (laCon) g('LỖI JS ' + che(e.message));
+  }, true);
+  if (laCon) addEventListener('unhandledrejection', (e) => g('LỖI promise ' + che(e.reason && (e.reason.message || e.reason))));
+  addEventListener('securitypolicyviolation', (e) => g('CSP CHẶN ' + an(e.blockedURI) + ' (' + e.violatedDirective + ')'));
+  // Yêu cầu mạng: đọc danh sách trình duyệt đã tải (PerformanceObserver), không chặn / sửa gì.
+  // Chỉ ở khung con và ở trang đăng nhập / kiểm tra; bỏ file tĩnh (script, ảnh) của fbcdn.
+  const xemMang = (ds) => {
+    if (!laCon && !laTrangDN()) return;
+    for (const r of ds) {
+      if (!/^(xmlhttprequest|fetch|iframe|beacon|other)$/.test(r.initiatorType)) continue;
+      if (/static\.[a-z.]*fbcdn\.net/.test(r.name)) continue;
+      g('MẠNG ' + r.initiatorType + ' ' + an(r.name) + (r.responseStatus ? ' → ' + r.responseStatus : '') + ' ' + Math.round(r.duration) + 'ms');
+    }
+  };
+  try { new PerformanceObserver((l) => xemMang(l.getEntries())).observe({ type: 'resource', buffered: true }); } catch (e) {}
+  if (laCon) {
+    g('mở ' + an(location.href));
+    // Khung con có được dùng cookie không (WebKit chặn cookie bên thứ ba → ô kiểm tra bảo mật có thể hỏng)
+    addEventListener('DOMContentLoaded', () => {
+      const kq = 'cookie trình duyệt=' + (navigator.cookieEnabled ? 'bật' : 'TẮT') + ', có cookie=' + (document.cookie ? 'có' : 'không');
+      if (document.hasStorageAccess) document.hasStorageAccess().then((v) => g('QUYỀN ' + kq + ', storage access=' + v), () => g('QUYỀN ' + kq));
+      else g('QUYỀN ' + kq);
+    });
+    return;
+  }
+  // Trang chính – ở trang đăng nhập / kiểm tra: bấm nút nào, gửi form đi đâu, trang đang hiện gì (KHÔNG đọc ô nhập)
+  addEventListener('submit', (e) => { if (laTrangDN()) g('GỬI FORM → ' + an(e.target.action || location.href)); }, true);
+  addEventListener('click', (e) => {
+    if (!laTrangDN()) return;
+    const b = e.target.closest && e.target.closest('button, [role=button], input[type=submit], a');
+    if (b) g('BẤM «' + che((b.innerText || b.value || b.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 40)) + '»');
+  }, true);
+  let truoc = '';
+  const xemTrang = () => {
+    if (!document.body || !laTrangDN()) return;
+    const td = [...document.querySelectorAll('h1, h2, [role=heading]')].map((x) => x.innerText.trim().replace(/\s+/g, ' ')).filter(Boolean).slice(0, 3).join(' | ');
+    const khung = [...document.querySelectorAll('iframe')].map((f) => an(f.src || 'about:blank')).join(', ');
+    const s = an(location.href) + ' · tiêu đề «' + che(td).slice(0, 120) + '» · ô mật khẩu ' + (document.querySelector('input[type=password]') ? 'có' : 'không') + (khung ? ' · khung con: ' + khung : '');
+    if (s !== truoc) { truoc = s; g('THẤY ' + s); }
+  };
+  let n = 0;
+  const t = setInterval(() => { xemTrang(); if (++n >= 180) clearInterval(t); }, 1000);
+  // Đã vào màn chat → báo Swift thôi ghi chi tiết
+  let m = 0;
+  const t2 = setInterval(() => {
+    if (document.querySelector('a[href*="/t/"]') && !document.querySelector('input[type=password]')) { gui({ vaoChat: true }); clearInterval(t2); }
+    else if (++m >= 60) clearInterval(t2);
+  }, 3000);
+})();
+"""#
+
 // MARK: Thanh cuộn
 // Máy cắm chuột → macOS hiện thanh cuộn có rãnh (kiểu "legacy"). Safari BỎ QUA màu rãnh Messenger đặt (scrollbar-color),
 // vẽ rãnh trong suốt → đoạn chat chủ đề màu lộ dải màu qua rãnh, cả thanh trượt bị tô màu (anh báo 03/11).
@@ -496,8 +617,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     var taiVe: [ObjectIdentifier: URL] = [:]       // file đang tải → nơi lưu
     var dangTai: [WKDownload] = []                  // giữ lượt tải (không giữ → bị huỷ giữa chừng, thử 03/11)
     var pip: [ObjectIdentifier: TrangThaiPiP] = [:]  // cửa sổ cuộc gọi → trạng thái PiP
+    var daVaoChat = false                            // nhật ký chẩn đoán: chưa vào màn chat → ghi chi tiết
+    var banhTruoc: [String: Bool]?                   // nhật ký chẩn đoán: tên cookie lần trước (→ phiên?) để biết thêm / mất
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ghiCD("MÁY \(AppDelegate.thongTinMay())", quanTrong: true)
         // Không cho macOS cho app "ngủ trưa" (App Nap) khi cửa sổ bị che / ẩn – cùng lý do như trên
         chongNgu = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
                                                           reason: "Nhận tin nhắn và cuộc gọi Messenger khi chạy ngầm")
@@ -522,6 +646,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         }
         if ProcessInfo.processInfo.environment["VM_THU_MENU"] != nil { DispatchQueue.main.asyncAfter(deadline: .now() + 12) { self.thuThanhMenu() } }
+        // Chạy thử nhật ký chẩn đoán (VM_CD_THU=1, nên kèm VM_KHONG_MO_NGOAI=1): 10 giây sau mở trang thử có khung con ngoài,
+        // link ngoài, cửa sổ mới, ảnh bị CSP chặn, script lỗi, ô mật khẩu giả (kiểm KHÔNG bị ghi). VM_CD_GOI=<thư mục>: 20 giây sau tạo gói.
+        if ProcessInfo.processInfo.environment["VM_CD_THU"] != nil {
+            let html = """
+                <!doctype html><meta charset="utf-8">
+                <meta http-equiv="Content-Security-Policy" content="img-src 'self'">
+                <h1>Trang thử – xin chào thu.chan.doan@example.com 0912 345 678</h1>
+                <form action="https://www.messenger.com/vm-form-thu" method="post" onsubmit="event.preventDefault()">
+                  <input name="email" value="thu.chan.doan@example.com"><input type="password" name="pass" value="MatKhauThuKhongDuocGhi">
+                  <button type="submit" id="dn">Đăng nhập</button></form>
+                <img src="https://example.com/anh.png">
+                <script src="https://khong-ton-tai.invalid/x.js"></script>
+                <iframe src="https://example.com/khung-thu?token=BiMat123456"></iframe>
+                <a id="ngoai" href="https://example.org/trang-ngoai?q=BiMat">ngoài</a>
+                <script>
+                  setTimeout(() => document.getElementById('dn').click(), 1500);
+                  setTimeout(() => window.open('https://example.net/cua-so-moi?x=BiMat'), 2500);
+                  setTimeout(() => document.getElementById('ngoai').click(), 3500);
+                </script>
+                """
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                self.webView.loadHTMLString(html, baseURL: URL(string: "https://www.messenger.com/vm-thu-chan-doan"))
+            }
+            if ProcessInfo.processInfo.environment["VM_CD_GOI"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self.taoGoiChanDoan() }
+            }
+            // + VM_CHUP_CD=<thư mục>: ghi menu Trợ giúp, mở Cài đặt → Chung rồi chụp (kiểm nút «Tạo gói chẩn đoán…»)
+            if ProcessInfo.processInfo.environment["VM_CHUP_CD"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    NSLog("VM: CĐ THỬ menu Trợ giúp = %@", (NSApp.helpMenu?.items.map(\.title) ?? []).joined(separator: " | "))
+                    self.moCaiDat()
+                    guard let tab = self.cuaSoCaiDat?.contentView?.viewWithTag(77) as? NSSegmentedControl else { return }
+                    tab.selectedSegment = 3; self.chonTab(tab)
+                    // Ghi thứ tự nút / chữ trong tab Chung (ảnh chụp ngầm không vẽ chữ)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        var ds: [String] = []
+                        func duyet(_ v: NSView) {
+                            if let b = v as? NSButton, !b.title.isEmpty { ds.append("[nút \(b.title)\(b.isEnabled ? "" : " – tắt")]") }
+                            else if let t = v as? NSTextField, !t.stringValue.isEmpty { ds.append(String(t.stringValue.prefix(60))) }
+                            v.subviews.forEach(duyet)
+                        }
+                        self.trangCaiDat.map(duyet)
+                        NSLog("VM: CĐ THỬ tab Chung: %@", ds.joined(separator: " · "))
+                    }
+                }
+            }
+        }
         // Chạy thử VM_THU_BT=<id>: mở Cài đặt → Biểu tượng, bấm hộ ô <id> (kèm VM_CHUP_CD để chụp trang)
         if let id = ProcessInfo.processInfo.environment["VM_THU_BT"] {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -606,9 +777,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 WKUserScript(source: jsThanhCuon, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
 
+        // Nhật ký chẩn đoán: mọi khung (cả khung con – ô kiểm tra bảo mật)
+        cauHinh.userContentController.addUserScript(
+            WKUserScript(source: jsChanDoan, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+
         cauHinh.userContentController.add(self, name: "vmThongBao")
         // Giữ đăng nhập: theo dõi cookie để đổi cookie phiên thành cookie 1 năm
         cauHinh.websiteDataStore.httpCookieStore.add(self)
+        // Nhật ký chẩn đoán: lúc mở app đã có cookie đăng nhập (c_user / xs) chưa – chỉ TÊN
+        cauHinh.websiteDataStore.httpCookieStore.getAllCookies { [weak self] ds in
+            guard let self else { return }
+            DispatchQueue.main.async { if self.banhTruoc == nil { self.soSanhBanh(self.banhTrongApp(ds)) } }
+        }
 
         webView = WKWebView(frame: .zero, configuration: cauHinh)
         webView.customUserAgent = userAgentSafari
@@ -641,6 +821,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // Không ghi giá trị cookie ra log.
     func cookiesDidChange(in store: WKHTTPCookieStore) {
         store.getAllCookies { ds in
+            let banh = self.banhTrongApp(ds)
+            DispatchQueue.main.async { self.soSanhBanh(banh) }   // nhật ký chẩn đoán: cookie nào thêm / mất (chỉ tên)
             for c in ds where c.isSessionOnly {
                 guard let u = URL(string: "https://" + c.domain.trimmingCharacters(in: ["."])), laTrongApp(u) else { continue }
                 guard var p = c.properties else { continue }
@@ -658,6 +840,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let d = message.body as? [String: Any] else { return }
+        // Nhật ký chẩn đoán từ đoạn JS chèn mọi khung (jsChanDoan)
+        if let cd = d["chanDoan"] as? String { ghiCD(String(cd.prefix(400)), message.webView); return }
+        if d["vaoChat"] != nil {
+            if message.webView == webView, message.frameInfo.isMainFrame, !daVaoChat {
+                daVaoChat = true; NSLog("VM: CĐ đã vào màn chat → thôi ghi chi tiết")
+            }
+            return
+        }
         if let nk = d["nhatKy"] as? String { if ghiGoLoi || !nk.hasPrefix("DÒ") { NSLog("VM: %@", nk) }; return }
         if let g = d["goiDenHien"] as? [String: Any], message.webView == webView {
             if goiDen == nil, !NSApp.isActive, caiDat("dockNayGoi", true) { NSApp.requestUserAttention(.criticalRequest) }   // chỉ cuộc gọi mới nảy Dock
@@ -725,15 +915,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if action.shouldPerformDownload { return decisionHandler(.download) }   // <a download>, blob, "Tải ảnh xuống"
+        // Nhật ký chẩn đoán: «ĐH <khung> <GET/POST> <đường> (<kiểu>) → <app làm gì>»
+        let khung = action.targetFrame.map { $0.isMainFrame ? "chính" : "con" } ?? "cửa sổ mới"
+        let ghi = { (kq: String, quan: Bool) in
+            let u = action.request.url
+            // Link ra ngoài khi đang chat (không ở chế độ chi tiết): chỉ ghi tên miền
+            let dg = (u.map(laTrongApp) ?? true) || self.cheDoChiTiet ? anDuong(u) : (u?.host ?? "?")
+            self.ghiCD("ĐH \(khung) \(action.request.httpMethod ?? "GET") \(dg) (\(AppDelegate.kieuDH(action.navigationType))) → \(kq)", webView, quanTrong: quan)
+        }
+        if action.shouldPerformDownload { ghi("tải về", false); return decisionHandler(.download) }   // <a download>, blob, "Tải ảnh xuống"
         guard let url = action.request.url, action.targetFrame?.isMainFrame != false else {
+            if let s = action.request.url?.scheme, s == "http" || s == "https" { ghi("cho phép", false) }
             return decisionHandler(.allow)             // khung con (iframe) → để trang tự lo
         }
-        if let that = linkThat(url) {
-            NSWorkspace.shared.open(that); return decisionHandler(.cancel)
+        // Trang chính về trang đăng nhập / kiểm tra (đăng xuất, phiên hết hạn…) → ghi chi tiết lại
+        if webView == self.webView, daVaoChat,
+           url.path.range(of: "^/(login|checkpoint|two_step|auth_platform|recover|logout)", options: .regularExpression) != nil {
+            daVaoChat = false; NSLog("VM: CĐ trang chính về trang đăng nhập / kiểm tra → ghi chi tiết")
         }
-        if laTrongApp(url) { decisionHandler(.allow) }
-        else { NSWorkspace.shared.open(url); decisionHandler(.cancel) }
+        if let that = linkThat(url) {
+            ghi("MỞ TRÌNH DUYỆT (link thật: \(that.host ?? "?"))", true)
+            moNgoai(that); return decisionHandler(.cancel)
+        }
+        if laTrongApp(url) { ghi("cho phép", false); decisionHandler(.allow) }
+        else { ghi("MỞ TRÌNH DUYỆT (tên miền ngoài app)", true); moNgoai(url); decisionHandler(.cancel) }
+    }
+
+    // Nhật ký chẩn đoán: server chuyển hướng (302…) trước khi trang mở
+    func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+        ghiCD("CHUYỂN HƯỚNG (server) → \(anDuong(webView.url))", webView)
     }
 
     // MARK: Tải file / lưu ảnh → thư mục Tải về (nhân Safari KHÔNG tự tải như Chrome của bản gốc)
@@ -741,7 +951,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     func webView(_ webView: WKWebView, decidePolicyFor r: WKNavigationResponse,
                  decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
         let dinhKem = ((r.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment")
-        decisionHandler(dinhKem || !r.canShowMIMEType ? .download : .allow)
+        // Nhật ký chẩn đoán: «PH <khung> <mã server> <đường> <loại>» – trang chính lỗi ≥400 luôn ghi
+        let ma = (r.response as? HTTPURLResponse)?.statusCode ?? 0
+        let tai = dinhKem || !r.canShowMIMEType
+        ghiCD("PH \(r.isForMainFrame ? "chính" : "con") \(ma) \(anDuong(r.response.url)) \(r.response.mimeType ?? "?")\(tai ? " → tải về" : "")",
+              webView, quanTrong: r.isForMainFrame && ma >= 400)
+        decisionHandler(tai ? .download : .allow)
     }
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome d: WKDownload) { d.delegate = self; dangTai.append(d) }
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome d: WKDownload) { d.delegate = self; dangTai.append(d) }
@@ -898,8 +1113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             }
         }
         // Chỉ ghi tên miền + đường dẫn (bỏ phần sau "?" – link cuộc gọi chứa mã tài khoản)
-        let duong = (webView.url?.host ?? "?") + (webView.url?.path ?? "").replacingOccurrences(of: "[0-9]{5,}", with: "N", options: .regularExpression)
-        NSLog("VM: tải xong %@ – %@", duong, webView.title ?? "")
+        NSLog("VM: tải xong %@ – %@", anDuong(webView.url), webView.title ?? "")
         if webView.url?.path.contains("/groupcall/") == true, let w = webView.window, w != window {
             if pip[ObjectIdentifier(w)] == nil { pip[ObjectIdentifier(w)] = TrangThaiPiP() }
             ghiPidDo(webView)
@@ -1251,11 +1465,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
                 """) { kq, loi in NSLog("VM: chạy thử JS → %@ %@", "\(kq ?? "")", loi?.localizedDescription ?? "") }
         }
     }
+    // Lỗi tải: thêm mã lỗi + trang bị lỗi (nhật ký chẩn đoán; mã -999 = huỷ, thường do app đẩy link ra trình duyệt)
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        NSLog("VM: lỗi tải %@", error.localizedDescription)
+        let e = error as NSError
+        NSLog("VM: lỗi tải %@ (mã %ld) %@", e.localizedDescription, e.code, anDuong(e.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url))
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        NSLog("VM: lỗi mở trang %@", error.localizedDescription)
+        let e = error as NSError
+        NSLog("VM: lỗi mở trang %@ (mã %ld) %@", e.localizedDescription, e.code, anDuong(e.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url))
     }
     // Nhân web bị sập (hết RAM…) → tự tải lại thay vì để màn hình trắng
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -1266,14 +1483,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     // Trang muốn mở cửa sổ mới (target=_blank, cuộc gọi…)
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        guard let url = action.request.url else { return nil }
-        if let that = linkThat(url) { NSWorkspace.shared.open(that); return nil }
-        if !laTrongApp(url) { NSWorkspace.shared.open(url); return nil }
+        guard let url = action.request.url else { ghiCD("CỬA SỔ MỚI (không có link) → bỏ qua", webView, quanTrong: true); return nil }
+        // Nhật ký chẩn đoán: trang xin mở cửa sổ mới (window.open / target=_blank) → app làm gì
+        let dg = laTrongApp(url) || cheDoChiTiet ? anDuong(url) : (url.host ?? "?")
+        if let that = linkThat(url) { ghiCD("CỬA SỔ MỚI \(dg) → MỞ TRÌNH DUYỆT (link thật: \(that.host ?? "?"))", webView, quanTrong: true); moNgoai(that); return nil }
+        if !laTrongApp(url) { ghiCD("CỬA SỔ MỚI \(dg) → MỞ TRÌNH DUYỆT (tên miền ngoài app)", webView, quanTrong: true); moNgoai(url); return nil }
         // Bấm "Tải xuống" file đính kèm → Messenger mở link file (fbsbx/fbcdn) trong cửa sổ mới → tải thẳng về
         if let h = url.host, h.hasSuffix("fbsbx.com") || h.hasSuffix("fbcdn.net") {
+            ghiCD("CỬA SỔ MỚI \(dg) → tải về", webView)
             webView.startDownload(using: action.request) { [weak self] d in d.delegate = self; self?.dangTai.append(d) }
             return nil
         }
+        ghiCD("CỬA SỔ MỚI \(dg) → cửa sổ phụ trong app", webView, quanTrong: true)
         NSLog("VM: GỌI? cửa sổ phụ mở: %@%@", url.host ?? "", url.path.replacingOccurrences(of: "[0-9]{5,}", with: "N", options: .regularExpression))
 
         // Link nội bộ (vd. cuộc gọi) → mở cửa sổ phụ dùng chung cookie
@@ -1538,7 +1759,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
             muc("Đóng", #selector(NSWindow.performClose(_:)), "w"),
             // "Đưa tất cả lên trước" bỏ đi: macOS đã tự thêm "Arrange in Front" khi đặt windowsMenu
         ])
-        NSApp.helpMenu = them("Trợ giúp", [muc("Phím tắt", #selector(moBangPhim), "/", self)])
+        NSApp.helpMenu = them("Trợ giúp", [muc("Phím tắt", #selector(moBangPhim), "/", self),
+                                            muc("Tạo gói chẩn đoán…", #selector(taoGoiChanDoan), "", self)])
         NSApp.mainMenu = menuChinh
     }
 }
@@ -1978,9 +2200,13 @@ extension AppDelegate {
 }
 
 // MARK: Cài đặt (⌘,) – 4 tab: Thông báo · Cuộc gọi · Tải file · Chung (anh duyệt trang xem thử 03/11, bỏ phần Cập nhật – làm sau)
-let ngayPhatHanh = "04/11/2026"
+let ngayPhatHanh = "05/11/2026"
 let tenApp = "Messenger Vdk"           // tên app (anh chốt 03/11; trước: Vduck Messenger → Messenger → Messenger AppD)
 let coGiMoi = """
+0.6.6 – 05/11/2026
+• Gói chẩn đoán: gặp lỗi (không đăng nhập được, trang không tải…) → Trợ giúp → Tạo gói chẩn đoán… (hoặc Cài đặt → Chung → Chẩn đoán), gửi file zip cho người hỗ trợ
+• Nhật ký ghi rõ hơn lúc đăng nhập: trang đi qua đâu, server trả gì, khung kiểm tra bảo mật có tải được không. Không ghi mật khẩu, email, cookie hay tin nhắn
+
 0.6.3 – 04/11/2026
 • Đổi biểu tượng app: Cài đặt → Biểu tượng (10 mẫu, mặc định logo gốc)
 • Biểu tượng trên thanh menu: số tin chưa đọc, 9 đoạn chat gần nhất, Tin nhắn mới, Tạm tắt thông báo, Gác máy khi đang gọi; chọn hiện app ở Dock / thanh menu / cả hai
@@ -2008,7 +2234,9 @@ let coGiMoi = """
 • ⌘S ẩn/hiện thông tin cuộc trò chuyện, ⇧⌘F tìm thẳng trong tab Tin nhắn
 • Bảng phím tắt hiện khi mở app (có ô tắt), chỉ cho chạy 1 bản app
 """
-let thuMucNhatKy = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/\(tenApp)")
+// Bản chạy thử (bundle id khác) ghi sang thư mục riêng «… (thử)» – không lẫn vào nhật ký của app thật (bẫy 03/11)
+let thuMucNhatKy = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+    "Library/Logs/\(tenApp)" + (Bundle.main.bundleIdentifier == "com.vduck.messenger" ? "" : " (thử)"))
 let fileNhatKy = thuMucNhatKy.appendingPathComponent("messenger.log")
 
 // Ghi nhật ký ra file (Cài đặt → Chẩn đoán): mọi dòng NSLog vẫn ra stderr như cũ, chép thêm vào ~/Library/Logs/<tên app>
@@ -2030,6 +2258,128 @@ func batGhiNhatKyRaFile() {
         f.write(d)
     }
     giuOngNhatKy = ong
+}
+
+// MARK: Nhật ký chẩn đoán – hàm phụ + «Tạo gói chẩn đoán» (Trợ giúp / Cài đặt → Chung → Chẩn đoán)
+extension AppDelegate {
+    var cheDoChiTiet: Bool { ghiGoLoi || !daVaoChat }
+    // Ghi 1 dòng «VM: CĐ …». Đang chat (không chi tiết) chỉ ghi dòng quan trọng.
+    func ghiCD(_ s: String, _ wv: WKWebView? = nil, quanTrong: Bool = false) {
+        guard quanTrong || cheDoChiTiet else { return }
+        let phu = (wv == nil || wv === webView) ? "" : " [cửa sổ phụ]"
+        NSLog("VM: CĐ %@%@", String(s.prefix(400)), phu)
+    }
+    // Mở link bằng trình duyệt mặc định. VM_KHONG_MO_NGOAI=1 (chạy thử): chỉ ghi, không mở trình duyệt của anh.
+    func moNgoai(_ u: URL) {
+        if ProcessInfo.processInfo.environment["VM_KHONG_MO_NGOAI"] == nil { NSWorkspace.shared.open(u) }
+    }
+    static func kieuDH(_ k: WKNavigationType) -> String {
+        switch k {
+        case .linkActivated: return "bấm link"
+        case .formSubmitted: return "gửi form"
+        case .backForward: return "lùi/tới"
+        case .reload: return "tải lại"
+        case .formResubmitted: return "gửi lại form"
+        default: return "trang tự chuyển"
+        }
+    }
+    // macOS, WebKit, máy, ngôn ngữ, bản app, app chạy từ đâu
+    static func thongTinMay() -> String {
+        let wk = Bundle(for: WKWebView.self).infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        var n = 0; sysctlbyname("hw.model", nil, &n, nil, 0)
+        var b = [CChar](repeating: 0, count: max(n, 1)); sysctlbyname("hw.model", &b, &n, nil, 0)
+        let p = Bundle.main.bundlePath
+        let tu = p.hasPrefix("/Applications/") ? "/Applications" : p.contains("AppTranslocation") ? "AppTranslocation (chưa chép vào Ứng dụng)"
+            : p.hasPrefix("/Volumes/") ? "ổ / DMG ngoài" : "thư mục khác"
+        return "app \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") (\(Bundle.main.bundleIdentifier ?? "?"))"
+            + " · macOS \(ProcessInfo.processInfo.operatingSystemVersionString) · WebKit \(wk) · máy \(String(cString: b))"
+            + " · ngôn ngữ \(Locale.preferredLanguages.prefix(3).joined(separator: ",")) · múi giờ \(TimeZone.current.identifier) · chạy từ \(tu)"
+    }
+    // Tên cookie của các tên miền trong app → phiên? (KHÔNG lấy giá trị)
+    func banhTrongApp(_ ds: [HTTPCookie]) -> [String: Bool] {
+        var r: [String: Bool] = [:]
+        for c in ds {
+            guard let u = URL(string: "https://" + c.domain.trimmingCharacters(in: ["."])), laTrongApp(u) else { continue }
+            r["\(c.name) (\(c.domain))"] = c.isSessionOnly
+        }
+        return r
+    }
+    // So với lần trước: cookie nào mới có / mất. c_user + xs (cookie đăng nhập) luôn ghi.
+    func soSanhBanh(_ moi: [String: Bool]) {
+        defer { banhTruoc = moi }
+        let dangNhap = { (k: String) in k.hasPrefix("c_user ") || k.hasPrefix("xs ") }
+        guard let cu = banhTruoc else {
+            let dn = moi.keys.filter(dangNhap).sorted()
+            ghiCD("COOKIE lúc mở app: \(moi.count) cookie · đăng nhập: \(dn.isEmpty ? "CHƯA (không có c_user/xs)" : dn.joined(separator: ", "))", quanTrong: true)
+            return
+        }
+        for k in moi.keys.sorted() where cu[k] == nil { ghiCD("COOKIE + \(k)\(moi[k] == true ? " – phiên" : "")", quanTrong: dangNhap(k)) }
+        for k in cu.keys.sorted() where moi[k] == nil { ghiCD("COOKIE − \(k)", quanTrong: dangNhap(k)) }
+    }
+
+    // Gói chẩn đoán = zip (nhật ký + thong-tin.txt) → người dùng gửi cho người hỗ trợ. Không tự gửi đi đâu.
+    @objc func taoGoiChanDoan() {
+        let tg = DateFormatter(); tg.dateFormat = "yyyy-MM-dd HH.mm"
+        let ten = "Messenger Vdk chan doan \(tg.string(from: Date())).zip"
+        if let thu = ProcessInfo.processInfo.environment["VM_CD_GOI"] {   // chạy thử: lưu thẳng vào thư mục này, không hỏi
+            return ghiGoiChanDoan(vao: URL(fileURLWithPath: thu).appendingPathComponent(ten)) { _ in }
+        }
+        let h = NSSavePanel(); h.nameFieldStringValue = ten
+        h.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        h.message = "Gói chẩn đoán: nhật ký đường đi của trang + thông tin máy. Không có mật khẩu, email, cookie hay tin nhắn."
+        let xuLy: (NSApplication.ModalResponse) -> Void = { [weak self] kq in
+            guard kq == .OK, let u = h.url else { return }
+            self?.ghiGoiChanDoan(vao: u) { ok in
+                if ok { NSWorkspace.shared.activateFileViewerSelecting([u]) }
+                let a = NSAlert()
+                a.messageText = ok ? "Đã tạo gói chẩn đoán" : "Không tạo được gói chẩn đoán"
+                a.informativeText = ok ? "File «\(u.lastPathComponent)» đã lưu. Bạn gửi file này cho người hỗ trợ (qua Messenger, Zalo…)."
+                                       : "Bạn thử lại, hoặc dùng Cài đặt → Chung → Lưu nhật ký…"
+                a.addButton(withTitle: "Đóng"); a.runModal()
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if let w = cuaSoCaiDat, w.isVisible { h.beginSheetModal(for: w, completionHandler: xuLy) } else { xuLy(h.runModal()) }
+    }
+    func ghiGoiChanDoan(vao zip: URL, xong: @escaping (Bool) -> Void) {
+        NSLog("VM: CĐ tạo gói chẩn đoán · %@ · trang chính %@ · đã vào chat: %@", AppDelegate.thongTinMay(), anDuong(webView.url), daVaoChat ? "có" : "chưa")
+        webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] ds in
+            guard let self else { return }
+            // Chờ 0,5 giây cho dòng nhật ký vừa ghi kịp xuống file
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let fm = FileManager.default
+                let tam = fm.temporaryDirectory.appendingPathComponent("vm-cd-\(UUID().uuidString)")
+                let goc = tam.appendingPathComponent(zip.deletingPathExtension().lastPathComponent)
+                try? fm.createDirectory(at: goc, withIntermediateDirectories: true)
+                for f in ["messenger.1.log", "messenger.log"] {
+                    let u = thuMucNhatKy.appendingPathComponent(f)
+                    if fm.fileExists(atPath: u.path) { try? fm.copyItem(at: u, to: goc.appendingPathComponent(f)) }
+                }
+                let banh = self.banhTrongApp(ds).map { "\($0.key)\($0.value ? " – phiên" : "")" }.sorted()
+                let caiDat = (UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:])
+                    .filter { $0.value is NSNumber }.map { "\($0.key) = \($0.value)" }.sorted()
+                let gio = DateFormatter(); gio.dateFormat = "dd/MM/yyyy HH:mm:ss"
+                let txt = "Gói chẩn đoán \(tenApp) – \(gio.string(from: Date()))\n\(AppDelegate.thongTinMay())\n"
+                    + "Trang chính đang mở: \(anDuong(self.webView.url))\nĐã vào màn chat: \(self.daVaoChat ? "có" : "chưa")\n"
+                    + "Tên miền mở trong app: \(tenMienTrongApp.joined(separator: ", "))\n\n"
+                    + "Cookie (chỉ TÊN, không có giá trị) – \(banh.count):\n\(banh.joined(separator: "\n"))\n\n"
+                    + "Cài đặt app (bật/tắt, số):\n\(caiDat.joined(separator: "\n"))\n"
+                try? txt.write(to: goc.appendingPathComponent("thong-tin.txt"), atomically: true, encoding: .utf8)
+                try? fm.removeItem(at: zip)
+                let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                p.arguments = ["-c", "-k", "--norsrc", "--keepParent", goc.path, zip.path]
+                p.terminationHandler = { p in
+                    DispatchQueue.main.async {
+                        try? fm.removeItem(at: tam)
+                        let ok = p.terminationStatus == 0 && fm.fileExists(atPath: zip.path)
+                        NSLog("VM: CĐ gói chẩn đoán %@ → %@", ok ? "xong" : "LỖI", zip.lastPathComponent)
+                        xong(ok)
+                    }
+                }
+                do { try p.run() } catch { try? fm.removeItem(at: tam); xong(false) }
+            }
+        }
+    }
 }
 
 final class HanhDong: NSObject {
@@ -2281,7 +2631,9 @@ extension AppDelegate {
             the([dong(nut("Kiểm tra cập nhật", "arrow.clockwise", xanh: true) { [weak self] in self?.kiemTraCapNhat(imLang: false) }, oTT),
                  chuGhi("App không tự hỏi – bấm nút để xem có bản mới trên GitHub (\(khoGitHub)). Bản mới được kiểm chữ ký số trước khi cài; app tự thay bản cũ và mở lại. Đăng nhập, cài đặt giữ nguyên.")]),
             tieuDeMuc("Chẩn đoán", "stethoscope"),
-            the([congTac("ghiGoLoi", false, "Ghi nhật ký gỡ lỗi"),
+            the([dong(nut("Tạo gói chẩn đoán…", "shippingbox", xanh: true) { [weak self] in self?.taoGoiChanDoan() }, NSTextField(labelWithString: "")),
+                 chuGhi("Gặp lỗi (không đăng nhập được, trang không tải…): làm lại thao tác bị lỗi 1 lần, rồi bấm nút này và gửi file zip cho người hỗ trợ. Trong gói: đường đi của trang + thông tin máy; không có mật khẩu, email, cookie hay nội dung tin nhắn."),
+                 congTac("ghiGoLoi", false, "Ghi nhật ký gỡ lỗi"),
                  chuGhi("Tắt: chỉ ghi lỗi và số đo. Bật: ghi chi tiết (dò tin, cuộc gọi) để tìm lỗi – không ghi nội dung tin nhắn hay tên người."),
                  cacNut]),
         ])
@@ -2640,6 +2992,7 @@ extension AppDelegate {
             kho.removeData(ofTypes: loai, modifiedSince: .distantPast) {
                 kho.httpCookieStore.getAllCookies { banh in
                     NSLog("VM: ĐĂNG XUẤT – đã xoá dữ liệu %d trang web, còn %d cookie", truoc.count, banh.count)
+                    self.daVaoChat = false   // nhật ký chẩn đoán: ghi chi tiết lần đăng nhập lại
                     self.webView.load(URLRequest(url: URL(string: "https://www.messenger.com/")!))
                     self.baoCapNhat("Đã đăng xuất", "Đã xoá đăng nhập và dữ liệu Messenger trên máy này.")
                 }
